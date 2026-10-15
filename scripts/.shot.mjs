@@ -1,0 +1,10 @@
+import { chromium } from 'playwright-core';
+const [url, out, w, h] = process.argv.slice(2);
+const b = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const p = await b.newPage({ viewport: { width: +w || 1400, height: +h || 1000 } });
+p.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('console:', m.text()); });
+p.on('pageerror', (e) => console.log('pageerror:', e.message));
+await p.goto(url);
+await p.waitForTimeout(+process.env.WAIT || 1500);
+await p.screenshot({ path: out });
+await b.close();
