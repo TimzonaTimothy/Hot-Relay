@@ -18,6 +18,7 @@ export class BootScene extends Phaser.Scene {
     telemetry.debug = FLAGS.debug;
     const [data] = await Promise.all([saves.load(), loadFonts()]);
     sfx.setVolume(data.settings.volume);
+    input.setKeyBindings(data.keyBindings);
     telemetry.log('session_start', { ...telemetry.context(), mode: FLAGS.mode });
     window.__hotRelay = { telemetry };
     document.getElementById('boot')?.remove();

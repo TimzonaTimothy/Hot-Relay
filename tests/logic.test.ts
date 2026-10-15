@@ -123,8 +123,8 @@ describe('aim', () => {
     expect(d.x).toBeCloseTo(Math.SQRT1_2);
     expect(d.y).toBeCloseTo(-Math.SQRT1_2);
   });
-  it('crouches on the ground and shoots down in the air', () => {
-    expect(aimFromInput({ ...none, down: true }, true, 1).crouch).toBe(true);
+  it('goes prone on the ground and shoots down in the air', () => {
+    expect(aimFromInput({ ...none, down: true }, true, 1).prone).toBe(true);
     expect(aimFromInput({ ...none, down: true }, false, 1).dir).toEqual({ x: 0, y: 1 });
   });
   it('snaps vectors to 8 directions', () => {

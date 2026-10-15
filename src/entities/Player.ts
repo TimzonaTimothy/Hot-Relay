@@ -1,6 +1,10 @@
 /**
- * The active operator (character controller): movement on land and in water, aiming, entry
- * attacks, ledge climbing and the visual rig.
+ * The active operator (character controller): movement on land and in water, aiming, prone,
+ * somersault jumps, dash, entry attacks, ledge climbing and the visual rig.
+ *
+ * Hitbox modes follow the body: standing 10×18, prone 12×7 (bullets at standing height pass
+ * over), tucked 10×12 during a somersault (feet-anchored, so landings stay exact), and a low
+ * slide box. Animation never moves the body; it only shows what the controller decided.
  *
  * One invisible physics body is shared by the whole squad; a Relay Swap changes its stats,
  * weapons and rig. Movement runs in fixed steps called by the stage; this class never reads
@@ -23,6 +27,15 @@ import { Rig } from './Rig';
 import type { Effects } from '../stage/Effects';
 
 export type GroundKind = 'solid' | 'oneway' | null;
+export type BodyMode = 'stand' | 'slide' | 'prone' | 'tuck';
+
+/** Hitbox per body mode, in the 12×20 hitbox frame (bottom edge = feet). */
+const BODY: Record<BodyMode, { w: number; h: number; ox: number; oy: number }> = {
+  stand: { w: 10, h: 18, ox: 1, oy: 2 },
+  slide: { w: 10, h: 11, ox: 1, oy: 9 },
+  prone: { w: 12, h: 7, ox: 0, oy: 13 },
+  tuck: { w: 10, h: 12, ox: 1, oy: 8 },
+};
 
 /** What the player needs to know about the level. */
 export interface PlayerWorld {
@@ -50,8 +63,28 @@ interface Climb {
 export class Player extends Phaser.Physics.Arcade.Sprite {
   def: OperatorDef;
   facing: 1 | -1 = 1;
-  crouching = false;
-  aim: AimResult = { dir: { x: 1, y: 0 }, crouch: false, explicitVertical: false };
+  aim: AimResult = { dir: { x: 1, y: 0 }, prone: false, explicitVertical: false };
+  bodyMode: BodyMode = 'stand';
+
+  // prone
+  /** Lying down (hitbox lowered). */
+  prone = false;
+  /** Prone toggled on with the prone key (stays down without holding Down). */
+  private proneLatched = false;
+  /** Getting up; movement waits, and a buffered jump fires when standing. */
+  private proneExitMs = 0;
+  private jumpAfterStand = false;
+  /** Jumps that came out of prone (stand up first, then jump) — for tests and telemetry. */
+  standUpJumps = 0;
+
+  // somersault, dash, stances
+  /** Time into the current somersault, or -1 when not flipping. */
+  flipMs = -1;
+  private takeoffStep = false;
+  dashMs = 0;
+  dashCooldownMs = 0;
+  private airDashUsed = false;
+  private sinceShotMs = 1e9;
   /** Weapons of the active operator (owned by the squad member). */
   arsenal: Arsenal | null = null;
 
@@ -108,6 +141,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.shadow = world.fx.makeShadow();
     this.arcadeBody.setMaxVelocityY(TUNING.maxFallSpeed);
     this.arcadeBody.setCollideWorldBounds(false);
+    this.bodyMode = 'tuck'; // force the first setBodyMode to apply the standing box
     this.setStanding();
     this.lastSafe = { x, y: feetY };
   }
@@ -144,9 +178,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.def = def;
     this.arsenal = arsenal;
     this.rig.setId(def.rig, arsenal.current.id);
-    this.crouching = false;
     this.surgeMs = 0;
-    this.setStanding();
+    this.endFlip();
+    this.setProne(false);
   }
 
   /** Refresh the arm texture after a weapon switch. */
@@ -154,18 +188,54 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.arsenal) this.rig.setWeapon(this.arsenal.current.id);
   }
 
-  private setStanding(): void {
-    this.arcadeBody.setSize(10, 18).setOffset(1, 2);
+  get flipping(): boolean {
+    return this.flipMs >= 0;
   }
 
-  private setCrouched(): void {
-    this.arcadeBody.setSize(10, 11).setOffset(1, 9);
+  /** 0..1 progress of the current somersault, or null. */
+  get flipProgress(): number | null {
+    return this.flipMs >= 0 ? Math.min(1, this.flipMs / TUNING.flipMs) : null;
+  }
+
+  get dashing(): boolean {
+    return this.dashMs > 0;
+  }
+
+  setBodyMode(mode: BodyMode): void {
+    if (this.bodyMode === mode) return;
+    this.bodyMode = mode;
+    const b = BODY[mode];
+    this.arcadeBody.setSize(b.w, b.h).setOffset(b.ox, b.oy);
+  }
+
+  private setStanding(): void {
+    this.setBodyMode('stand');
+  }
+
+  private setProne(on: boolean): void {
+    this.prone = on;
+    if (!on) this.proneLatched = false;
+    this.setBodyMode(on ? 'prone' : 'stand');
+  }
+
+  private endFlip(): void {
+    if (this.flipMs < 0) return;
+    this.flipMs = -1;
+    if (this.bodyMode === 'tuck') this.setStanding();
+  }
+
+  /** The scene fired a shot: hold the shooting stance briefly. */
+  noteShot(): void {
+    this.sinceShotMs = 0;
   }
 
   /** Muzzle position in world space for an aim direction (follows the rig's shoulder). */
   muzzle(dir: Vec = this.aim.dir): Vec {
     const w = this.arsenal?.current;
-    return this.rig.muzzle(dir, w?.muzzle ?? 18);
+    const m = this.rig.muzzle(dir, w?.muzzle ?? 18);
+    // lying down the barrel is a few px off the floor; keep rounds clear of the ground
+    if (this.prone) m.y = Math.min(m.y, this.feetY - 4.5);
+    return m;
   }
 
   ejectionPort(dir: Vec = this.aim.dir): Vec {
@@ -190,6 +260,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.hurtPending = true;
     this.slideMs = 0;
     this.climb = null;
+    this.dashMs = 0;
+    this.endFlip();
+    if (this.prone) this.setProne(false);
   }
 
   /** A hit that should play the hurt pose without moving the body (drowning). */
@@ -205,6 +278,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.invulnMs = Math.max(0, this.invulnMs - dtMs);
     this.dropThroughMs = Math.max(0, this.dropThroughMs - dtMs);
     this.waterJumpMs = Math.max(0, this.waterJumpMs - dtMs);
+    this.dashCooldownMs = Math.max(0, this.dashCooldownMs - dtMs);
+    this.sinceShotMs += dtMs;
+    this.takeoffStep = false;
 
     this.updateWater();
     const grounded = this.grounded;
@@ -220,19 +296,16 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.slideMs > 0) {
       this.slideMs -= dtMs;
       body.setVelocityX(this.facing * TUNING.slideSpeed);
-      if (!this.crouching) {
-        this.crouching = true;
-        this.setCrouched();
-      }
-      if (this.slideMs <= 0) {
-        this.crouching = false;
-        this.setStanding();
-      }
+      this.prone = false;
+      this.setBodyMode('slide');
+      if (this.slideMs <= 0) this.setStanding();
       this.groundKind = null;
       return false;
     }
 
     if (this.inWater && this.waterJumpMs <= 0) {
+      this.dashMs = 0;
+      this.endFlip();
       const jumped = this.stepSwim(dtMs, inp);
       this.groundKind = null;
       return jumped;
@@ -244,26 +317,80 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private stepLand(dtMs: number, inp: InputFrame, grounded: boolean): boolean {
     const dt = dtMs / 1000;
     const body = this.arcadeBody;
+    const aim = aimFromInput(inp, grounded, this.facing);
+    const ax = inp.axisX;
 
-    // --- aim and crouch
-    this.aim = aimFromInput(inp, grounded, this.facing);
-    const wantCrouch = this.aim.crouch && grounded;
-    if (wantCrouch !== this.crouching) {
-      this.crouching = wantCrouch;
-      if (wantCrouch) this.setCrouched();
-      else this.setStanding();
+    // --- dash / dodge (one per airtime; dashing out of prone stands you up instantly)
+    if (grounded) this.airDashUsed = false;
+    if (inp.dashPressed && this.dashCooldownMs <= 0 && !(this.airDashUsed && !grounded)) {
+      if (ax !== 0) this.facing = ax > 0 ? 1 : -1;
+      if (this.prone) this.setProne(false);
+      this.proneExitMs = 0;
+      this.endFlip();
+      this.dashMs = TUNING.dashMs;
+      this.dashCooldownMs = TUNING.dashCooldownMs;
+      this.invulnMs = Math.max(this.invulnMs, TUNING.dashInvulnMs);
+      if (!grounded) this.airDashUsed = true;
+      if (grounded) this.world.fx.dust(this.x - this.facing * 4, this.feetY, 5);
+      sfx.dash();
+    }
+    if (this.dashMs > 0) {
+      this.dashMs -= dtMs;
+      body.setAllowGravity(false);
+      body.setVelocity(this.facing * this.def.runSpeed * TUNING.dashSpeedMul, 0);
+      if (Math.random() < 0.6) this.world.fx.dust(this.x - this.facing * 6, this.y, 1, 0xcfe8ff);
+      this.aim = aimFromInput(inp, false, this.facing);
+      if (this.dashMs <= 0) body.setAllowGravity(true);
+      this.groundKind = null;
+      return false;
     }
 
+    // --- prone: hold Down on the ground, or toggle with the prone key
+    if (inp.pronePressed && grounded) this.proneLatched = !this.proneLatched;
+    if (!grounded) this.proneLatched = false;
+    const wantProne = grounded && (this.proneLatched || aim.prone);
+    let jumpNow = inp.jumpPressed;
+    const dropThrough = inp.down && inp.jumpPressed && grounded && this.groundKind === 'oneway';
+    if (this.prone && jumpNow && !dropThrough) {
+      // no jumping from the ground: stand up first, then the jump fires
+      this.jumpAfterStand = true;
+      jumpNow = false;
+    }
+    if (this.prone && (!wantProne || this.jumpAfterStand)) {
+      this.setProne(false);
+      this.proneExitMs = TUNING.proneExitMs;
+    } else if (!this.prone && wantProne && this.proneExitMs <= 0 && !this.jumpAfterStand) {
+      this.setProne(true);
+    }
+    let standing = false;
+    if (this.proneExitMs > 0) {
+      this.proneExitMs -= dtMs;
+      standing = true;
+      if (this.proneExitMs <= 0 && this.jumpAfterStand) {
+        this.jumpAfterStand = false;
+        jumpNow = true;
+        this.standUpJumps++;
+      }
+    }
+
+    // --- aim: prone always fires level; standing/air use the 8-way rules
+    this.aim =
+      this.prone || standing
+        ? { dir: { x: this.facing, y: 0 }, prone: this.prone, explicitVertical: false }
+        : aim;
+
     // --- horizontal: accelerate towards target speed (analogue: a light tilt walks)
-    const ax = inp.axisX;
     if (ax !== 0) this.facing = ax > 0 ? 1 : -1;
+    if (this.prone || standing) this.aim = { ...this.aim, dir: { x: this.facing, y: 0 } };
     const surge = this.surgeMs > 0;
     if (surge) this.surgeMs -= dtMs;
-    const target = this.crouching
+    const target = standing
       ? 0
-      : surge
-        ? this.facing * this.def.runSpeed * 2.2
-        : ax * this.def.runSpeed;
+      : this.prone
+        ? ax * TUNING.proneCrawlSpeed
+        : surge
+          ? this.facing * this.def.runSpeed * 2.2
+          : ax * this.def.runSpeed;
     const accel = grounded
       ? target !== 0
         ? TUNING.groundAccel
@@ -276,18 +403,30 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const stepV = accel * dt;
     body.setVelocityX(Math.abs(diff) <= stepV ? target : vx + Math.sign(diff) * stepV);
 
-    // --- drop through a one-way platform: down + jump
+    // --- drop through a one-way platform: down + jump (works from prone too)
     let jumped = false;
-    if (inp.down && inp.jumpPressed && grounded && this.groundKind === 'oneway') {
+    if (dropThrough) {
+      if (this.prone) this.setProne(false);
       this.dropThroughMs = TUNING.dropThroughMs;
       this.jumpCtl.clear();
       body.setVelocityY(40);
       this.y += 2;
-    } else if (this.jumpCtl.step(dtMs, grounded, inp.jumpPressed)) {
+    } else if (!this.prone && this.jumpCtl.step(dtMs, grounded, jumpNow)) {
       body.setVelocityY(-this.def.jumpVelocity);
       this.jumpCutDone = false;
       jumped = true;
+      this.takeoffStep = true;
+      if (TUNING.flipOnJump) {
+        this.flipMs = 0;
+        this.setBodyMode('tuck');
+      }
       sfx.jump();
+    }
+
+    // --- somersault progress; it ends after one turn, or on landing
+    if (this.flipMs >= 0 && !jumped) {
+      this.flipMs += dtMs;
+      if (this.flipMs >= TUNING.flipMs || (grounded && body.velocity.y >= 0)) this.endFlip();
     }
 
     // --- variable jump height: releasing early cuts the rise once
@@ -309,17 +448,16 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const prof = this.def.swim;
     const w = this.water;
     body.setAllowGravity(false);
-    if (this.crouching) {
-      this.crouching = false;
-      this.setStanding();
-    }
+    if (this.prone) this.setProne(false);
+    this.proneExitMs = 0;
+    this.jumpAfterStand = false;
     this.pounding = false;
 
     // aim freely in all 8 directions while swimming; holding only "down" underwater is a
     // dive, so the gun stays level (down + left/right still aims diagonally)
     this.aim = aimFromInput(inp, false, this.facing);
     if (w.submerged && inp.down && !inp.left && !inp.right)
-      this.aim = { dir: { x: this.facing, y: 0 }, crouch: false, explicitVertical: false };
+      this.aim = { dir: { x: this.facing, y: 0 }, prone: false, explicitVertical: false };
     const ax = inp.axisX;
     if (ax !== 0) this.facing = ax > 0 ? 1 : -1;
 
@@ -463,7 +601,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       vx: b.velocity.x,
       vy: b.velocity.y,
       runSpeed: this.def.runSpeed,
-      crouch: this.crouching,
+      prone: this.prone,
+      firing: this.sinceShotMs < TUNING.shootStanceMs,
+      aiming: grounded && this.aim.explicitVertical,
+      takeoff: this.takeoffStep,
+      flipping: this.flipMs >= 0,
+      dashing: this.dashMs > 0,
       sliding: this.slideMs > 0,
       inWater: this.inWater,
       submerged: this.submerged,
@@ -493,6 +636,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         armReady: !blocked && !this.climbing,
         reload: a?.reloadProgress ?? null,
         swimDir: this.swimDir,
+        flip: this.flipProgress,
       },
       this.x,
       this.feetY,
@@ -526,9 +670,15 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.slideMs = 0;
     this.surgeMs = 0;
     this.pounding = false;
-    this.crouching = false;
     this.climb = null;
     this.waterJumpMs = 0;
+    this.dashMs = 0;
+    this.flipMs = -1;
+    this.prone = false;
+    this.proneLatched = false;
+    this.proneExitMs = 0;
+    this.jumpAfterStand = false;
+    this.bodyMode = 'tuck'; // force the reset below to apply
     this.water = DRY;
     this.dead = false;
     this.setStanding();

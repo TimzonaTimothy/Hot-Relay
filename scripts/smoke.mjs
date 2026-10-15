@@ -275,7 +275,7 @@ try {
         stuckSince = Date.now();
       }
       if (!swapped && s.x > 420) {
-        await page.keyboard.press('KeyC');
+        await page.keyboard.press('KeyE');
         await sleep(120);
         const after = await state(page);
         swapped = true;
@@ -287,7 +287,7 @@ try {
       }
       // the bot jumps best as Kemi: tag her back in whenever the swap allows
       if (swapped && s.active !== 'kemi' && Date.now() % 1600 < 60)
-        await page.keyboard.press('KeyC');
+        await page.keyboard.press('KeyE');
       if (!paused && s.x > 900) {
         paused = true;
         await page.keyboard.up('ArrowRight');
@@ -399,7 +399,7 @@ try {
     check('a floater drifts back to the surface', s.inWater && !s.submerged, `feetY ${s.feetY}`);
 
     // Rurik sinks to the bed, his LMG swaps to the sidearm, and he drowns without air
-    await page.keyboard.press('KeyC'); // tag Rurik in
+    await page.keyboard.press('KeyE'); // tag Rurik in
     s = await waitState(page, (x) => x.active === 'rurik', 3000);
     await dbg('setInvulnerable', 1e9); // only drowning can hurt him here
     s = await waitState(page, (x) => x.submerged && x.weapon === 'p9', 10000);
@@ -433,6 +433,215 @@ try {
     await ctx.close();
   }
 
+  // 3b. Combat moves (somersault, prone, dash, weapon slots) and new content
+  {
+    const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+    const { page, errs } = await stagePage(ctx, '?autostart=1&debug=1&squad=kemi,rurik,tari');
+    const dbg = (fn, ...args) =>
+      page.evaluate(([f, a]) => window.__hotRelay.debug[f](...a), [fn, args]);
+    await dbg('setInvulnerable', 1e9);
+    await dbg('teleport', 200, 240);
+    await sleep(400);
+
+    // somersault: Space flips (tucked hitbox), and you can fire during it
+    let s = await state(page);
+    check('standing hitbox is 18 px', s.bodyH === 18, `bodyH ${s.bodyH}`);
+    await page.keyboard.down('KeyJ');
+    await page.keyboard.press('Space');
+    const f1 = await waitState(page, (x) => x.flipping && x.anim === 'flip', 3000);
+    check(
+      'jump plays a somersault with a tucked hitbox',
+      f1.flipping && f1.anim === 'flip' && f1.bodyH === 12,
+      `anim ${f1.anim} bodyH ${f1.bodyH}`,
+    );
+    const f2 = await waitState(page, (x) => x.flipping && x.mag < f1.mag, 3000);
+    check(
+      'firing continues during the somersault',
+      f2.flipping && f2.mag < f1.mag,
+      `mag ${f1.mag}→${f2.mag}`,
+    );
+    await page.keyboard.up('KeyJ');
+    s = await waitState(page, (x) => x.grounded && !x.flipping && x.bodyH === 18, 4000);
+    check(
+      'lands upright with the standing hitbox back',
+      s.grounded && !s.flipping && s.bodyH === 18,
+      `anim ${s.anim}`,
+    );
+    await page.screenshot({ path: `${OUT}/20-somersault-landed.png` });
+
+    // holding the jump button does not chain flips
+    await page.keyboard.down('Space');
+    await waitState(page, (x) => x.flipping, 2000);
+    s = await waitState(page, (x) => x.grounded && !x.flipping, 4000);
+    await sleep(500);
+    const held = await state(page);
+    await page.keyboard.up('Space');
+    check(
+      'holding jump does not repeat the flip',
+      held.grounded && !held.flipping,
+      `anim ${held.anim}`,
+    );
+
+    // prone: hold Down → lying, low hitbox, shots come from the lowered gun
+    await page.keyboard.down('ArrowDown');
+    s = await waitState(page, (x) => x.prone && x.bodyH === 7, 3000);
+    check(
+      'Down on the ground goes prone with a low hitbox',
+      s.prone && s.bodyH === 7,
+      `anim ${s.anim} bodyH ${s.bodyH}`,
+    );
+    await page.keyboard.down('KeyJ');
+    // (the first shots can leave while the body is still going down; wait for it to settle)
+    s = await waitState(page, (x) => x.anim === 'proneShoot' && x.feetY - x.lastMuzzleY <= 6, 4000);
+    const proneMuzzle = s.lastMuzzleY;
+    check(
+      'fires while prone from near the floor',
+      s.anim === 'proneShoot' && s.feetY - proneMuzzle <= 6,
+      `muzzle ${proneMuzzle} feet ${s.feetY}`,
+    );
+    await page.screenshot({ path: `${OUT}/21-prone-fire.png` });
+    await page.keyboard.up('ArrowDown');
+    s = await waitState(
+      page,
+      (x) => !x.prone && x.bodyH === 18 && x.lastMuzzleY < x.feetY - 8,
+      3000,
+    );
+    await page.keyboard.up('KeyJ');
+    check(
+      'standing up restores the hitbox and the muzzle height',
+      !s.prone && s.bodyH === 18 && s.lastMuzzleY < s.feetY - 8,
+      `muzzle ${s.lastMuzzleY} anim ${s.anim}`,
+    );
+
+    // C toggles prone; Jump from prone stands up first, then jumps
+    await page.keyboard.press('KeyC');
+    s = await waitState(page, (x) => x.prone, 3000);
+    await sleep(300);
+    s = await state(page);
+    check('C toggles prone without holding Down', s.prone, `anim ${s.anim}`);
+    const before = s.standUpJumps;
+    await page.keyboard.press('Space');
+    const air = await waitState(page, (x) => !x.grounded && x.standUpJumps > before, 4000);
+    check(
+      'jump from prone stands up, then jumps',
+      !air.grounded && air.standUpJumps === before + 1 && !air.prone,
+      `stand-up jumps ${before}→${air.standUpJumps}, anim ${air.anim}`,
+    );
+    await waitState(page, (x) => x.grounded && !x.flipping, 4000);
+
+    // dash: a quick burst with a cooldown
+    s = await state(page);
+    const x0 = s.x;
+    await page.keyboard.press('Shift');
+    const d1 = await waitState(page, (x) => x.dashCooldown > 0, 2000);
+    await sleep(500);
+    const d2 = await state(page);
+    check(
+      'Shift dashes forward and starts a cooldown',
+      d1.dashCooldown > 0 && d2.x - x0 > 35,
+      `moved ${d2.x - x0} px`,
+    );
+
+    // weapon pickup into slot 3, then 1/2/3 select slots
+    await dbg('givePickup', 'lance');
+    await sleep(600);
+    await page.keyboard.down('KeyD');
+    s = await waitState(page, (x) => x.weapons.includes('lance'), 6000);
+    await page.keyboard.up('KeyD');
+    check(
+      'a weapon pickup goes into slot 3 and is equipped',
+      s.weapon === 'lance' && s.slot === 2 && s.pickupAmmo > 0,
+      `${s.weapons.join(',')} ammo ${s.pickupAmmo}`,
+    );
+    await page.keyboard.press('Digit1');
+    const k1 = await waitState(page, (x) => x.slot === 0, 2000);
+    await page.keyboard.press('Digit3');
+    const k3 = await waitState(page, (x) => x.slot === 2, 2000);
+    check(
+      '1/2/3 select weapon slots',
+      k1.weapon === 'kestrel' && k3.weapon === 'lance',
+      `${k1.weapon}, ${k3.weapon}`,
+    );
+
+    // supply pod: crosses the screen, shoot it down, collect what it drops
+    await dbg('teleport', 240, 240);
+    await sleep(1200);
+    await dbg('teleport', 330, 240);
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('KeyJ');
+    s = await waitState(page, (x) => x.pickupsOut > 0, 40000);
+    await page.keyboard.up('KeyW');
+    await page.keyboard.up('KeyJ');
+    check(
+      'a supply pod flies in and drops a pickup when shot',
+      s.pickupsOut > 0,
+      `pickups ${s.pickupsOut}`,
+    );
+    await page.screenshot({ path: `${OUT}/22-pod-drop.png` });
+    // walk to wherever it landed
+    s = await state(page);
+    for (let i = 0; i < 12 && !s.weapons.includes('fan'); i++) {
+      const pk = s.pickupList.find((k) => k.kind === 'fan');
+      if (!pk) break;
+      const key = pk.x > s.x ? 'KeyD' : 'KeyA';
+      await page.keyboard.down(key);
+      s = await waitState(page, (x) => x.weapons.includes('fan') || Math.abs(x.x - pk.x) < 6, 3000);
+      await page.keyboard.up(key);
+      await sleep(150);
+      s = await state(page);
+    }
+    check(
+      'collecting the pod pickup gives its weapon',
+      s.weapons.includes('fan'),
+      s.weapons.join(','),
+    );
+
+    // collapsing bridge
+    await dbg('teleport', 1500, 240);
+    await sleep(300);
+    await page.keyboard.down('KeyD');
+    s = await waitState(page, (x) => x.bridgeCollapsed >= 3, 15000);
+    await page.screenshot({ path: `${OUT}/23-bridge.png` });
+    await page.keyboard.up('KeyD');
+    check(
+      'the bridge collapses after you step on it',
+      s.bridgeCollapsed >= 3,
+      `segments down ${s.bridgeCollapsed}`,
+    );
+
+    // explosive barrel
+    await dbg('teleport', 1180, 240);
+    await sleep(400);
+    await page.keyboard.press('KeyD');
+    await page.keyboard.down('KeyJ');
+    s = await waitState(page, (x) => x.barrels < 4, 20000);
+    await page.keyboard.up('KeyJ');
+    check('shooting an explosive barrel blows it up', s.barrels < 4, `barrels left ${s.barrels}`);
+
+    // grenadier lobs grenades; turret is armoured until it opens, then can be destroyed
+    await dbg('teleport', 2040, 176);
+    s = await waitState(page, (x) => x.grenades > 0, 25000);
+    check('the grenadier lobs grenades at the player', s.grenades > 0, `grenades ${s.grenades}`);
+    await page.screenshot({ path: `${OUT}/24-grenade.png` });
+    await dbg('teleport', 1330, 240);
+    await sleep(300);
+    await page.keyboard.press('KeyD');
+    await page.keyboard.down('KeyJ');
+    s = await waitState(page, (x) => (x.kinds.turret ?? 0) < 2, 45000);
+    await page.keyboard.up('KeyJ');
+    check(
+      'a turret installation can be destroyed',
+      (s.kinds.turret ?? 0) < 2,
+      JSON.stringify(s.kinds),
+    );
+    check(
+      'combat moves and content ran without errors',
+      errs.length === 0,
+      errs.slice(0, 3).join(' | '),
+    );
+    await ctx.close();
+  }
+
   // 4. Solo mode (H2 baseline)
   {
     const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
@@ -441,7 +650,7 @@ try {
     await page.waitForFunction(() => window.__hotRelay?.state?.scene === 'stage', null, {
       timeout: 15000,
     });
-    await page.keyboard.press('KeyC');
+    await page.keyboard.press('KeyE');
     await sleep(200);
     const s = await state(page);
     check('solo mode ignores swap', s.active === 'kemi' && s.swaps === 0 && s.squad.length === 1);

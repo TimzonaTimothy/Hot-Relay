@@ -44,7 +44,8 @@ Run `npm run e2e` after gameplay changes.
 - **Tuning numbers live in `src/config/tuning.ts`** and `src/data/operators.ts`. Don't hard-code
   feel values inside entities.
 - **Input** comes from one `InputManager` (keyboard, Gamepad API, touch). Presses are latched
-  until a tick consumes them. Scenes never read the keyboard directly.
+  until a tick consumes them. Scenes never read the keyboard directly. Bindings are data in
+  `config/controls.ts` (defaults + saved overrides); keep `findConflicts(DEFAULT_KEYS)` empty.
 - **Arcade overlap callbacks**: argument order is not guaranteed for array-vs-group checks.
   Identify objects by type (`instanceof Bullet`), as `StageScene.addColliders` does.
 - **Zoomed camera**: world camera is zoom ×2 (480×270 logical in a 960×540 canvas). Objects with
@@ -60,16 +61,18 @@ Run `npm run e2e` after gameplay changes.
 ```
 src/
   main.ts                 game config, scene list, service worker
-  config/                 constants (sizes, colours, depths), tuning (feel numbers incl. water, air)
+  config/                 constants (sizes, colours, depths), tuning (feel numbers incl. water, air,
+                          prone, flip, dash), controls (key/pad bindings as data)
   data/operators.ts       Kemi / Rurik / Mei-Lin / Tari: stats, swim profile, weapons, entry attack
   data/weapons.ts         weapon catalogue (fire rate, mag, reload, recoil, underwater rule)
   data/stages/            stage format + greybox01 layout (water volumes, hazards, insertion)
   art/                    PLACEHOLDER art drawn at boot: characters (rig atlas), fx (effects,
                           hazards, helicopter), stageArt (painted platforms), paint helpers
-  entities/               Player (controller), Rig (cut-out visuals), Enemy, Rifleman,
-                          Hazards (Mine, EelDrone, Grate, Cache), BulletPool
-  stage/                  visual-only helpers for StageScene: Effects, WaterView, Foliage,
-                          CameraRig, Insertion (helicopter cinematic)
+  entities/               Player (controller), Rig (cut-out visuals), Enemy, Rifleman, Grenadier,
+                          Turret, Hazards (Mine, EelDrone, Grate, Cache), Explosives (Grenade,
+                          Barrel), Supply (SupplyPod, Pickup), BulletPool
+  stage/                  helpers for StageScene: Effects, WaterView, Foliage, CameraRig,
+                          Insertion (helicopter cinematic), Tracers (trails + homing), Bridges
   scenes/                 Boot, Preload, Menu, Squad, Stage, Hud, Pause, Results, Stress
   systems/                pure logic: FixedStep, JumpController, Squad (+air, arsenal), Arsenal,
                           anim (state machine), water (swim physics), geometry, insertion
@@ -89,6 +92,12 @@ ASSETS.md                 every placeholder texture and sound, and what replaces
   draws them. Never size hitboxes from art.
 - **Animation:** `systems/anim.ts` decides the state in fixed steps; `Rig` blends poses per
   frame. New states go in both, plus the transition table and a test.
+- **Hitboxes follow body modes, not art:** `Player.setBodyMode('stand' | 'prone' | 'tuck' |
+  'slide')`. Prone 12×7, somersault tuck 10×12, both feet-anchored.
+- **One explosion path:** every blast (mines, grenades, barrels, rockets, bridge, turrets) goes
+  through `StageScene.explode`, which handles effects, player/enemy damage and barrel chains.
+- **Weapons:** slots 1–2 are the operator's own (unlimited reserve); slot 3 is a pickup weapon
+  with limited ammo (`Arsenal.givePickup`). New weapons need an arm drawing in `art/characters.ts`.
 - **Water** is rectangles in stage data (`water`); `systems/water.ts` is the only swim physics.
   Visuals (`stage/WaterView.ts`) read the same rectangles, so they always match.
 - **Insertion** is a pure timeline (`systems/insertion.ts`) drawn by `stage/Insertion.ts`. The

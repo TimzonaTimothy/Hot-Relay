@@ -20,7 +20,8 @@ export type TelemetryEvent =
   | 'detail_change'
   | 'secret_route'
   | 'secret_found'
-  | 'squad_selected';
+  | 'squad_selected'
+  | 'pickup';
 
 export interface TelemetryRecord {
   t: number;
@@ -64,6 +65,8 @@ declare global {
         teleport(x: number, feetY: number): void;
         setInvulnerable(ms: number): void;
         clearEnemies(): void;
+        /** Drop a pickup at the player's feet. */
+        givePickup(kind: string): void;
         /** Visible objects per texture key (PERF-01 checks). */
         visibleByTexture(keys: string[]): Record<string, number>;
         feedAutoDetail(fps: number, ms: number): void;

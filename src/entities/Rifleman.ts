@@ -3,7 +3,9 @@
  * idle → aim (visible telegraph, direction locked) → 3-round burst → cooldown → aim …
  * The aim direction is locked when the telegraph starts, so a player who reads the
  * flash can always step out of the line. Shots travel in one of 8 directions.
- * On death the rig is thrown back, falls to the ground and fades.
+ * When nothing is in sight it patrols its stretch of ground (if given a patrol range) and
+ * never walks off a ledge. It needs a clear line of sight to start aiming, flinches when hit
+ * (which also delays its next shot a little), and on death is thrown back and fades.
  */
 import Phaser from 'phaser';
 import { Enemy, type EnemyContext, type EnemyVisualWorld } from './Enemy';
@@ -11,7 +13,7 @@ import { snap8 } from '../systems/aim';
 import { sfx } from '../systems/Sfx';
 import { COLORS, DEPTH } from '../config/constants';
 import { Rig, RIG_SCALE } from './Rig';
-import { AnimStateMachine } from '../systems/anim';
+import { AnimStateMachine, IDLE_INPUT } from '../systems/anim';
 import { groundBelow } from '../systems/geometry';
 import { WEAPONS } from '../data/weapons';
 
@@ -25,6 +27,8 @@ const COOLDOWN_JITTER_MS = 450;
 const BULLET_SPEED = 165;
 const RANGE_X = 250;
 const RANGE_Y = 160;
+const PATROL_SPEED = 28;
+const FLINCH_DELAY_MS = 140;
 
 export class Rifleman extends Enemy {
   private aiState: State = 'idle';
@@ -43,17 +47,39 @@ export class Rifleman extends Enemy {
     floor: number;
   } | null = null;
   private glint = false;
+  private hurtPending = false;
+  private readonly homeX: number;
+  override readonly kind: string = 'rifleman';
 
-  constructor(scene: Phaser.Scene, x: number, feetY: number, shadow?: Phaser.GameObjects.Image) {
+  constructor(
+    scene: Phaser.Scene,
+    x: number,
+    feetY: number,
+    shadow?: Phaser.GameObjects.Image,
+    /** Walk up to this far either side of the spawn point while idle (0 = stand guard). */
+    private readonly patrol = 0,
+  ) {
     super(scene, x, feetY - 10, 'hitbox', 3);
     this.setVisible(false);
     this.arcadeBody.setSize(10, 18).setOffset(1, 2);
     this.arcadeBody.setMaxVelocityY(420);
     this.rig = new Rig(scene, 'contractor', 'contractorRifle', DEPTH.enemies, RIG_SCALE * 0.96);
     this.shadow = shadow ?? null;
+    this.homeX = x;
+  }
+
+  override hit(damage: number): boolean {
+    const killed = super.hit(damage);
+    if (!killed) {
+      this.hurtPending = true;
+      // a hit throws off the aim: the shot comes a beat later
+      if (this.aiState === 'aim' || this.aiState === 'cooldown') this.timerMs += FLINCH_DELAY_MS;
+    }
+    return killed;
   }
 
   protected override onStunned(): void {
+    this.arcadeBody.setVelocityX(0);
     this.aiState = 'cooldown';
     this.timerMs = COOLDOWN_MS;
     this.rig?.setTint(0x8899ff);
@@ -72,8 +98,26 @@ export class Rifleman extends Enemy {
       Math.abs(dy) < RANGE_Y &&
       !ctx.targetSubmerged && // can't see a diver under the surface
       this.isOnScreen(ctx.view, -4) &&
-      this.arcadeBody.blocked.down;
-    if (this.aiState === 'idle' || this.aiState === 'cooldown') this.facing = dx < 0 ? -1 : 1;
+      this.arcadeBody.blocked.down &&
+      ctx.canSee(this.x, this.y - 6, ctx.target.x, ctx.target.y);
+    // patrol while nothing is in sight; stop to fight
+    let walk = 0;
+    if (this.patrol > 0 && this.aiState === 'idle' && !inRange && this.arcadeBody.blocked.down) {
+      if (this.x > this.homeX + this.patrol) this.facing = -1;
+      if (this.x < this.homeX - this.patrol) this.facing = 1;
+      const ahead = ctx.groundAt(this.x + this.facing * 8, this.arcadeBody.bottom - 2);
+      if (
+        ahead === null ||
+        Math.abs(ahead - this.arcadeBody.bottom) > 3 ||
+        this.arcadeBody.blocked.left ||
+        this.arcadeBody.blocked.right
+      )
+        this.facing = this.facing === 1 ? -1 : 1;
+      walk = this.facing * PATROL_SPEED;
+    }
+    this.arcadeBody.setVelocityX(walk);
+    if ((this.aiState === 'idle' && walk === 0) || this.aiState === 'cooldown')
+      this.facing = dx < 0 ? -1 : 1;
 
     switch (this.aiState) {
       case 'idle':
@@ -114,20 +158,16 @@ export class Rifleman extends Enemy {
         break;
     }
     this.anim.step(dtMs, {
+      ...IDLE_INPUT,
       grounded: this.arcadeBody.blocked.down || this.arcadeBody.touching.down,
       vx: this.arcadeBody.velocity.x,
       vy: this.arcadeBody.velocity.y,
       runSpeed: 100,
-      crouch: false,
-      sliding: false,
-      inWater: false,
-      submerged: false,
-      climbing: false,
-      onRope: false,
-      dead: false,
-      victory: false,
-      hurt: false,
+      aiming: this.aiState === 'aim',
+      firing: this.aiState === 'burst',
+      hurt: this.hurtPending,
     });
+    this.hurtPending = false;
   }
 
   private beginAim(ctx: EnemyContext): void {
@@ -195,7 +235,7 @@ export class Rifleman extends Enemy {
     return {
       state,
       stateMs: this.anim.timeMs,
-      vx: 0,
+      vx: this.dead ? 0 : this.arcadeBody.velocity.x,
       vy: 0,
       runSpeed: 100,
       aim,

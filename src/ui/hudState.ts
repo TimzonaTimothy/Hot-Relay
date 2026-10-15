@@ -26,6 +26,10 @@ export interface HudWeapon {
   blocked: boolean;
   /** The other weapon's short name. */
   other: string;
+  /** Weapon slots for the 1/2/3 keys; ammo is the pickup weapon's remaining total. */
+  slots: { short: string; active: boolean; ammo: number | null }[];
+  /** Dash readiness 0..1 (1 = ready). */
+  dashReady: number;
 }
 
 export interface HudCinematic {

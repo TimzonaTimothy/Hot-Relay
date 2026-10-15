@@ -68,6 +68,20 @@ export const TUNING = {
   /** Auto-fire (touch option) only fires when an enemy is within this distance. */
   autoFireRange: 230,
 
+  /** Prone: crawl speed (0 disables crawling) and the time to get up / lie down. */
+  proneCrawlSpeed: 34,
+  proneExitMs: 130,
+  /** Somersault on every ground jump: one forward turn over this long (shooting allowed). */
+  flipOnJump: true,
+  flipMs: 520,
+  /** Dash / dodge: a short burst, brief invulnerability (intended), one per airtime. */
+  dashMs: 170,
+  dashSpeedMul: 2.4,
+  dashCooldownMs: 650,
+  dashInvulnMs: 140,
+  /** How long after a shot the body keeps its shooting stance. */
+  shootStanceMs: 180,
+
   /** Knockback when hit: away from the hit, with a small hop (can knock you into water). */
   hurtKnockX: 120,
   hurtKnockY: 150,

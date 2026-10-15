@@ -38,6 +38,8 @@ export interface SaveData {
   lastSquad: string[];
   /** Stages whose opening insertion has been watched once (skippable afterwards). */
   seenInsertion: Record<string, boolean>;
+  /** Keyboard binding overrides: action → KeyboardEvent.code list (see config/controls.ts). */
+  keyBindings: Record<string, string[]>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -59,6 +61,7 @@ export function defaultSave(): SaveData {
     stats: { runsStarted: 0, runsCleared: 0 },
     lastSquad: [],
     seenInsertion: {},
+    keyBindings: {},
   };
 }
 
@@ -113,6 +116,13 @@ export function migrate(raw: unknown): SaveData {
       ? (Object.fromEntries(
           Object.entries(raw.seenInsertion).filter(([, v]) => v === true),
         ) as Record<string, boolean>)
+      : {},
+    keyBindings: isObj(raw.keyBindings)
+      ? (Object.fromEntries(
+          Object.entries(raw.keyBindings).filter(
+            ([, v]) => Array.isArray(v) && v.length > 0 && v.every((k) => typeof k === 'string'),
+          ),
+        ) as Record<string, string[]>)
       : {},
   };
 }

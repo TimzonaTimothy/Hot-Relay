@@ -66,3 +66,28 @@ export function ledgeAhead(
   }
   return null;
 }
+
+/**
+ * Line of sight: is the segment a→b blocked by any of the given (solid) rectangles?
+ * Samples every `step` px, which is plenty for walls at least 8 px thick.
+ */
+export function segmentBlocked(
+  solids: readonly Rect[],
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  step = 4,
+): boolean {
+  const len = Math.hypot(bx - ax, by - ay);
+  const n = Math.max(1, Math.ceil(len / step));
+  const minX = Math.min(ax, bx);
+  const maxX = Math.max(ax, bx);
+  const near = solids.filter((p) => p.x <= maxX && p.x + p.w >= minX);
+  if (near.length === 0) return false;
+  for (let i = 1; i < n; i++) {
+    const t = i / n;
+    if (insideSolid(near, ax + (bx - ax) * t, ay + (by - ay) * t)) return true;
+  }
+  return false;
+}

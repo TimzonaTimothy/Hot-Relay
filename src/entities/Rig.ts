@@ -23,7 +23,8 @@ export const RIG_SCALE = 0.8;
 const HIP_Y = -10;
 const SHOULDER = { x: 1.2, y: -17.6 };
 const NECK = { x: 0.6, y: -20.4 };
-const CROUCH_DROP = 4.5;
+/** How far a prone body drops so it lies on the ground (world px, before rig scale). */
+const PRONE_SINK = 6.2;
 /** Body pivot (hips), measured up from the feet, in rig units. */
 export const PIVOT = 11;
 
@@ -42,6 +43,8 @@ export interface RigParams {
   reload: number | null;
   /** Swim heading for underwater orientation (world space). */
   swimDir: Vec;
+  /** Somersault progress 0..1 while flipping, else null. */
+  flip?: number | null;
 }
 
 interface Pose {
@@ -58,6 +61,8 @@ interface Pose {
   /** Extra downward offset of the whole body (lying down), world px. */
   sink: number;
 }
+
+const easeInOut = (t: number) => -(Math.cos(Math.PI * Math.min(1, Math.max(0, t))) - 1) / 2;
 
 const ease = (cur: number, target: number, rate: number, dt: number) =>
   cur + (target - cur) * Math.min(1, dt * rate);
@@ -89,6 +94,8 @@ export class Rig {
   };
   private armEased = 0;
   private bodyRot = 0;
+  /** Extra somersault rotation, finished forward to a full turn after landing. */
+  private flipRot = 0;
   id: RigId;
   weapon: WeaponId;
   readonly scale: number;
@@ -207,11 +214,64 @@ export class Rig {
         pose.legB = 0.5;
         pose.drop = 2.2;
         break;
-      case 'crouch':
-        pose.legF = -1.25;
-        pose.legB = 0.95;
-        pose.drop = CROUCH_DROP;
+      case 'aim':
+      case 'shoot': {
+        // braced stance: feet apart, weight forward, a small kick on each shot
+        pose.legF = 0.34;
+        pose.legB = -0.3;
+        pose.torso = 0.07;
+        pose.drop = 0.8;
+        pose.bob =
+          p.state === 'shoot' ? Math.sin(this.t * 40) * 0.25 : Math.sin(this.t * 2.6) * 0.2;
         break;
+      }
+      case 'takeoff':
+        // the crouch-and-push frame before leaving the ground
+        pose.legF = -0.55;
+        pose.legB = 0.45;
+        pose.torso = 0.18;
+        pose.drop = 2.6;
+        break;
+      case 'flip':
+        // tucked: knees to chest, torso curled; the spin itself is applied in update()
+        pose.legF = -1.75;
+        pose.legB = -1.35;
+        pose.torso = 0.32;
+        pose.head = 0.2;
+        pose.drop = 2.2;
+        break;
+      case 'proneEnter':
+      case 'prone':
+      case 'proneShoot':
+      case 'proneExit': {
+        // lying on the stomach, head towards the facing side; the gun stays aimed
+        const down = p.state === 'proneEnter' || p.state === 'proneExit' ? 0.55 : 1;
+        pose.body = (Math.PI / 2) * down;
+        pose.legF = 0.05;
+        pose.legB = -0.08 + (p.state === 'prone' ? Math.sin(this.t * 2) * 0.03 : 0);
+        pose.head = -0.55 * down;
+        pose.torso = 0;
+        pose.sink = PRONE_SINK * down;
+        if (p.state === 'proneShoot') pose.bob = Math.sin(this.t * 40) * 0.2;
+        break;
+      }
+      case 'dash':
+        pose.body = 0.38;
+        pose.legF = -0.9;
+        pose.legB = 0.85;
+        pose.torso = 0.1;
+        pose.drop = 1.2;
+        break;
+      case 'runShoot': {
+        // run cycle with a steadier upper body so the aim reads
+        this.phase += speed * dt * 0.115;
+        const s = Math.sin(this.phase);
+        pose.legF = s * 0.8;
+        pose.legB = -s * 0.8;
+        pose.bob = -Math.abs(Math.cos(this.phase)) * 0.6;
+        pose.torso = 0.04;
+        break;
+      }
       case 'slide':
         pose.body = -0.55;
         pose.legF = -1.35;
@@ -303,7 +363,16 @@ export class Rig {
     this.root.setPosition(x, feetY - PIVOT * s + c.sink);
     this.root.scaleX = s * p.facing;
     this.root.scaleY = s * this.squash;
-    this.root.rotation = this.bodyRot * p.facing;
+    // somersault: follow the controller's progress; if it ends early (short hop, landing),
+    // finish the turn forward quickly rather than unwinding backwards
+    if (p.flip !== null && p.flip !== undefined) {
+      this.flipRot = Math.max(this.flipRot, easeInOut(p.flip) * Math.PI * 2);
+    } else if (this.flipRot > 0) {
+      this.flipRot += dt * 22;
+      if (this.flipRot >= Math.PI * 2) this.flipRot = 0;
+    }
+    if (this.flipRot >= Math.PI * 2 - 1e-3) this.flipRot = 0;
+    this.root.rotation = (this.bodyRot + this.flipRot) * p.facing;
 
     this.legF.rotation = c.legF;
     this.legB.rotation = c.legB;

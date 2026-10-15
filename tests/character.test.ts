@@ -321,14 +321,14 @@ describe('save data for the character system', () => {
 
 describe('animation edge cases', () => {
   it('can grab the rope from a fall, and lands from it', async () => {
-    const { AnimStateMachine } = await import('../src/systems/anim');
+    const { AnimStateMachine, IDLE_INPUT } = await import('../src/systems/anim');
     const m = new AnimStateMachine();
     const base = {
+      ...IDLE_INPUT,
       grounded: false,
       vx: 0,
       vy: 50,
       runSpeed: 120,
-      crouch: false,
       sliding: false,
       inWater: false,
       submerged: false,
@@ -344,14 +344,14 @@ describe('animation edge cases', () => {
   });
 
   it('hurt while swimming returns to swimming, not a land state', async () => {
-    const { AnimStateMachine } = await import('../src/systems/anim');
+    const { AnimStateMachine, IDLE_INPUT } = await import('../src/systems/anim');
     const m = new AnimStateMachine();
     const w = {
+      ...IDLE_INPUT,
       grounded: false,
       vx: 0,
       vy: 0,
       runSpeed: 120,
-      crouch: false,
       sliding: false,
       inWater: true,
       submerged: true,

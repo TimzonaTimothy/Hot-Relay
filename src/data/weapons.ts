@@ -4,7 +4,20 @@
  * magazines exist so reloads create short, readable windows of vulnerability.
  */
 
-export type WeaponId = 'kestrel' | 'bulwark' | 'needle' | 'riptide' | 'p9' | 'contractorRifle';
+export type WeaponId =
+  | 'kestrel'
+  | 'bulwark'
+  | 'needle'
+  | 'riptide'
+  | 'p9'
+  | 'contractorRifle'
+  | 'fan'
+  | 'hornet'
+  | 'lance'
+  | 'thumper';
+
+/** Weapons that only come from supply-pod pickups (slot 3, limited ammo). */
+export const PICKUP_WEAPONS: readonly WeaponId[] = ['fan', 'hornet', 'lance'];
 
 /**
  * full: fires normally underwater (speargun).
@@ -37,6 +50,17 @@ export interface WeaponDef {
   /** Placeholder synth pitch for the shot sound. */
   pitch: number;
   tint?: number;
+  /** Rounds per trigger pull, fanned evenly across `pelletSpreadDeg`. */
+  pellets?: number;
+  pelletSpreadDeg?: number;
+  /** Homing turn rate in radians per second (rockets). */
+  homing?: number;
+  /** Explodes on impact or at the end of its flight. */
+  blast?: { radius: number; damage: number };
+  /** Tracer colour behind each round. */
+  trail: number;
+  /** Ammo a pickup gives (pickup weapons only). */
+  pickupAmmo?: number;
 }
 
 export const UNDERWATER_REDUCED = { speed: 0.42, life: 0.6, damage: 0.75 } as const;
@@ -44,6 +68,7 @@ export const UNDERWATER_REDUCED = { speed: 0.42, life: 0.6, damage: 0.75 } as co
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   kestrel: {
     id: 'kestrel',
+    trail: 0xffe39a,
     name: 'Kestrel SMG',
     short: 'SMG',
     fireRate: 10,
@@ -62,6 +87,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   bulwark: {
     id: 'bulwark',
+    trail: 0xffc46b,
     name: 'Bulwark LMG',
     short: 'LMG',
     fireRate: 8,
@@ -80,6 +106,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   needle: {
     id: 'needle',
+    trail: 0xd9ffd0,
     name: 'Needle DMR',
     short: 'DMR',
     fireRate: 2.6,
@@ -98,6 +125,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   riptide: {
     id: 'riptide',
+    trail: 0xbff6ee,
     name: 'Riptide speargun',
     short: 'SPEAR',
     fireRate: 3.2,
@@ -117,6 +145,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   p9: {
     id: 'p9',
+    trail: 0xfff2c0,
     name: 'P9 sidearm',
     short: 'P9',
     fireRate: 5,
@@ -135,6 +164,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   contractorRifle: {
     id: 'contractorRifle',
+    trail: 0xff8a50,
     name: 'Contractor rifle',
     short: 'AR',
     fireRate: 0,
@@ -150,6 +180,92 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     underwater: 'none',
     ejectsCasings: true,
     pitch: 300,
+  },
+  fan: {
+    id: 'fan',
+    name: 'Fan scattergun',
+    short: 'FAN',
+    trail: 0xffb36b,
+    fireRate: 4.5,
+    damage: 1,
+    bulletSpeed: 330,
+    spreadDeg: 0,
+    pellets: 5,
+    pelletSpreadDeg: 32,
+    pierce: 1,
+    bulletLength: 5,
+    magSize: 10,
+    reloadMs: 900,
+    recoil: 2.2,
+    muzzle: 19,
+    underwater: 'reduced',
+    ejectsCasings: true,
+    pitch: 520,
+    pickupAmmo: 60,
+  },
+  hornet: {
+    id: 'hornet',
+    name: 'Hornet launcher',
+    short: 'HORNET',
+    trail: 0xdcdcdc,
+    fireRate: 2.2,
+    damage: 2,
+    bulletSpeed: 210,
+    spreadDeg: 0,
+    homing: 5.5,
+    blast: { radius: 22, damage: 3 },
+    pierce: 1,
+    bulletLength: 8,
+    magSize: 4,
+    reloadMs: 1300,
+    recoil: 2.4,
+    muzzle: 22,
+    underwater: 'none',
+    ejectsCasings: false,
+    pitch: 220,
+    tint: 0xffe0b0,
+    pickupAmmo: 16,
+  },
+  lance: {
+    id: 'lance',
+    name: 'Arc lance',
+    short: 'LANCE',
+    trail: 0x8ff3ff,
+    fireRate: 3.5,
+    damage: 2.5,
+    bulletSpeed: 820,
+    spreadDeg: 0,
+    pierce: 99,
+    bulletLength: 24,
+    magSize: 8,
+    reloadMs: 1000,
+    recoil: 1.4,
+    muzzle: 21,
+    underwater: 'reduced',
+    ejectsCasings: false,
+    pitch: 1800,
+    tint: 0xbff9ff,
+    pickupAmmo: 40,
+  },
+  // grenadier's launcher (enemy only): lobs bouncing grenades
+  thumper: {
+    id: 'thumper',
+    name: 'Thumper',
+    short: 'GL',
+    trail: 0xff8a50,
+    fireRate: 0,
+    damage: 1,
+    bulletSpeed: 0,
+    spreadDeg: 0,
+    pierce: 1,
+    bulletLength: 4,
+    magSize: 0,
+    reloadMs: 0,
+    recoil: 2,
+    muzzle: 15,
+    underwater: 'none',
+    ejectsCasings: false,
+    pitch: 260,
   },
 };
 

@@ -29,6 +29,8 @@ export class InsertionCinematic {
   private readonly bladeB: Phaser.GameObjects.Image;
   private readonly tail: Phaser.GameObjects.Image;
   private readonly rope: Phaser.GameObjects.Graphics;
+  /** Ground shadow: grows and darkens as the helicopter comes down. */
+  private readonly shadow: Phaser.GameObjects.Image;
   private rotorAngle = 0;
   private landedHandled = false;
   private frameState: InsertionFrame;
@@ -58,6 +60,10 @@ export class InsertionCinematic {
       .setDepth(DEPTH.player - 1)
       .setScale(facing, 1);
     this.rope = scene.add.graphics().setDepth(DEPTH.player - 1);
+    this.shadow = scene.add
+      .image(0, groundY, 'fx-shadow')
+      .setDepth(DEPTH.level + 1)
+      .setAlpha(0);
 
     player.arcadeBody.enable = false;
     player.onRope = false;
@@ -147,6 +153,15 @@ export class InsertionCinematic {
       this.rope.strokePath();
     }
 
+    // shadow on the ground under the helicopter, softer the higher it flies
+    const alt = this.seq.groundY - f.heli.y;
+    const k = Math.max(0.15, Math.min(1, 1 - (alt - 30) / 220));
+    const width = 76 * (0.5 + 0.5 * k);
+    this.shadow
+      .setPosition(f.heli.x - 6 * Math.sign(this.heli.scaleX), this.seq.groundY)
+      .setScale((S * width) / 24, S * (1.2 + k))
+      .setAlpha(0.55 * k);
+
     // rotor wash on dust and grass beneath the helicopter
     this.fx.wash(f.heli.x, this.seq.groundY, f.wash, frameMs);
     this.foliage.setWash(f.heli.x, f.wash);
@@ -167,5 +182,6 @@ export class InsertionCinematic {
     this.foliage.setWash(0, 0);
     this.heli.destroy();
     this.rope.destroy();
+    this.shadow.destroy();
   }
 }

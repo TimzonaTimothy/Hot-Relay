@@ -33,6 +33,7 @@ export class Effects {
   private foamE: Phaser.GameObjects.Particles.ParticleEmitter;
   private bubbleE: Phaser.GameObjects.Particles.ParticleEmitter;
   private washE: Phaser.GameObjects.Particles.ParticleEmitter;
+  private smokeE: Phaser.GameObjects.Particles.ParticleEmitter;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -104,6 +105,19 @@ export class Effects {
         emitting: false,
       })
       .setDepth(DEPTH.fx);
+    // explosion smoke: dark, slow, rising and spreading
+    this.smokeE = scene.add
+      .particles(0, 0, 'fx-dust', {
+        speedX: { min: -30, max: 30 },
+        speedY: { min: -45, max: -12 },
+        lifespan: { min: 700, max: 1300 },
+        scale: { start: S * 1.4, end: S * 4.2 },
+        alpha: { start: 0.55, end: 0 },
+        tint: [0x3a3634, 0x4d4642, 0x2a2826],
+        gravityY: -12,
+        emitting: false,
+      })
+      .setDepth(DEPTH.fx);
     // rotor wash: low, fast, flat dust sheets thrown outwards from under the helicopter
     this.washE = scene.add
       .particles(0, 0, 'fx-dust', {
@@ -118,6 +132,47 @@ export class Effects {
         emitting: false,
       })
       .setDepth(DEPTH.player + 3);
+  }
+
+  /**
+   * Explosion: fireball, flash glow, rising smoke and (in water) bubbles. size ~ blast radius px.
+   */
+  explosion(x: number, y: number, size: number, wet: boolean): void {
+    const k = size / 24;
+    const ball = this.scene.add
+      .image(x, y, 'fx-fireball')
+      .setScale(S * 0.6 * k)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(DEPTH.fx + 1)
+      .setTint(wet ? 0x9fe8ff : 0xffffff);
+    this.scene.tweens.add({
+      targets: ball,
+      scale: S * 2.6 * k,
+      alpha: 0,
+      angle: 40,
+      duration: 360,
+      ease: 'Cubic.easeOut',
+      onComplete: () => ball.destroy(),
+    });
+    const glow = this.scene.add
+      .image(x, y, 'glow')
+      .setScale(1.2 * k)
+      .setTint(wet ? 0x7fd6e6 : 0xff9a4a)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.8)
+      .setDepth(DEPTH.fx);
+    this.scene.tweens.add({
+      targets: glow,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => glow.destroy(),
+    });
+    if (wet) {
+      this.bubbles(x, y, Math.round(10 * k));
+    } else {
+      this.smokeE.explode(Math.round(6 * k + 3), x, y);
+      this.dust(x, y + size * 0.3, Math.round(4 * k), 0x8a7a66);
+    }
   }
 
   /** Muzzle flash at the barrel tip, pointing along `angle`. Underwater it is a bubble burst. */

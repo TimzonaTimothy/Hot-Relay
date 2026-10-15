@@ -21,6 +21,12 @@ export interface EnemyContext {
   flashing: boolean;
   water: readonly WaterVolume[];
   fireEnemyBullet(x: number, y: number, dirX: number, dirY: number, speed: number): void;
+  /** Lob a grenade (grenadiers). */
+  throwGrenade(x: number, y: number, vx: number, vy: number): void;
+  /** Line of sight through the level's solid geometry. */
+  canSee(ax: number, ay: number, bx: number, by: number): boolean;
+  /** Ground height under a point (for patrols that must not walk off ledges). */
+  groundAt(x: number, fromY: number): number | null;
   /** Blast that hurts the player and other enemies in range (mines). */
   explode(x: number, y: number, radius: number, damage: number, source: Enemy): void;
   /** Called the first time any enemy starts attacking (telemetry: time to first fight). */
@@ -47,6 +53,10 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite {
   protected rig: Rig | null = null;
   /** Contact damage dealt by touching this enemy. */
   contactDamage = 1;
+  /** Hit reaction: time left in the flinch (subclasses play a hurt pose / pause). */
+  flinchMs = 0;
+  /** Short label for tests and telemetry. */
+  readonly kind: string = 'enemy';
 
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string, maxHp: number) {
     super(scene, x, y, texture);
@@ -71,6 +81,7 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite {
     if (this.dead) return false;
     this.hp -= damage;
     this.flashMs = 70;
+    this.flinchMs = 160;
     if (this.rig) this.rig.flash(70);
     else this.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
     if (this.hp <= 0) {
@@ -111,6 +122,7 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   step(dtMs: number, ctx: EnemyContext): void {
     if (this.dead) return;
+    this.flinchMs = Math.max(0, this.flinchMs - dtMs);
     if (this.flashMs > 0) {
       this.flashMs -= dtMs;
       if (this.flashMs <= 0) this.restoreTint();

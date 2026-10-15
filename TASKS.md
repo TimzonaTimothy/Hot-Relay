@@ -35,7 +35,11 @@ Keep this file in the repo root so Claude Code can read and update it.
   a secret cache, the helicopter insertion cinematic, squad select, themed HUD/pause/results.
   62 unit tests and 32 smoke checks pass. Placeholder art and audio are listed in ASSETS.md.
 - **This session (2026-10-15):** imported to github.com/TimzonaTimothy/Hot-Relay (PR #2), PERF-01 low-detail
-  mode, fixed a flaky smoke-test bot at the arena crate. 71 unit tests, 33 smoke checks pass locally and on CI.
+  mode, fixed a flaky smoke-test bot at the arena crate. Then (branch `combat-moves`): somersault jumps,
+  prone with low hitbox, dash, shooting stances, weapon slots + supply-pod pickups (spread, homing
+  rockets, laser), tracers and explosions, rifleman patrol/line of sight/flinch, grenadier, turret,
+  collapsing bridge, explosive barrels, helicopter shadow, controls as data (new defaults).
+  Reviewed github.com/pstarwars2026/contra-run (Apache-2.0, Three.js) as a reference; no code copied.
 
 ---
 
@@ -92,7 +96,9 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] COMBAT-03 Health, armour, damage, death (G3) (done 2026-10-15)
 - [x] COMBAT-04 Hit-stop, hit flash, screen shake (toggleable) (G3) (done 2026-10-15)
 - [ ] COMBAT-05 Sidearms: Kestrel SMG, Bulwark LMG (overheat), Needle DMR (pierce) (G5) — started: weapons with magazines, reload, recoil and a P9 sidearm each (CHAR-03); LMG overheat to do
-- [ ] COMBAT-06 Pickup crates + Fan, Arc Lance, Hornet (G5)
+- [x] COMBAT-06 Pickup crates + Fan, Arc Lance, Hornet (G5) — supply pods fly across and drop pickups: Fan scattergun (5-pellet spread), Hornet launcher (homing rockets, blast), Arc lance (piercing beam) (done 2026-10-15)
+- [x] COMBAT-10 Weapon slots: 1 primary, 2 sidearm, 3 pickup weapon with limited ammo (dropped when empty); 1/2/3 keys; ammo pickups (done 2026-10-15)
+- [x] COMBAT-11 Projectile trails, rocket smoke, one explosion system (fireball, smoke, debris, chain reactions) (done 2026-10-15)
 - [ ] COMBAT-07 Loadout slot + Breacher shotgun (G5)
 - [ ] COMBAT-08 Mei-Lin Mark (weak-point bonus damage) (G5)
 - [ ] COMBAT-09 Weapon data in JSON for tuning (G5) — started: all weapon numbers live in src/data/weapons.ts
@@ -126,9 +132,19 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] CHAR-15 Stable side camera with ground anchor and water framing (G3) (done 2026-10-15)
 - [ ] CHAR-16 Water combat pass after playtests: eel tuning, more underwater threats (G5)
 - [ ] CHAR-17 Replace procedural poses with painted parts / hand-keyed animation (ART) (G5)
+- [x] CHAR-18 Somersault jump: forward flip on every ground jump, tucked 10×12 hitbox, fire while flipping, no chaining from a held button, landing recovery (done 2026-10-15)
+- [x] CHAR-19 Prone: hold Down or toggle C; 12×7 hitbox (standing-height shots pass over), prone fire from the lowered gun, slow crawl, Jump stands up first then jumps (done 2026-10-15)
+- [x] CHAR-20 Dash / dodge (Shift): short burst, brief invulnerability, one per jump, cooldown shown in the HUD (done 2026-10-15)
+- [x] CHAR-21 Stances: aim, shoot, run-and-shoot, takeoff, prone enter/idle/shoot/exit added to the animation state machine (done 2026-10-15)
+- [x] CHAR-22 Control layout as data (config/controls.ts) with saved overrides and conflict check; new defaults Space/J/C/Shift/1-2-3/E (done 2026-10-15)
+- [ ] CHAR-23 DECISION NEEDED: 3D character models (Three.js or pre-rendered 3D sprites) vs the current 2D cut-out rigs — see the session report; no engine change without the owner's approval
 - [~] PERF-01 Measure stage + stress on 3 real phones; if below target add a low-detail setting (G4) — **Low-detail mode done (2026-10-15):** Detail Auto/High/Low in Settings and Pause, `?detail=` flag; Low hides bg-mid/bg-near, water light shafts, grass tufts, contact shadows; Auto watches a rolling 5 s window of gameplay frames only (no cinematic, pause, hit-stop) and switches to Low once, with a small "Detail lowered" notice, if any window's median is below 50 fps; it never switches back up and manual High/Low wins (`systems/detail.ts`, unit tests, e2e checks). Measured: Apple-silicon Mac (headless SwiftShader) is capped at 60 fps before and after on stage and stress; uncapped, Low is ~16% faster than High on the stage, no change on stress. GitHub runner (no GPU): bot run 21–25 fps median; arena High p50 20 / p10 15 vs Low p50 20 / p10 20; stress 43–60 fps (varies by runner). The stage start is cheap (60 fps on CI), which is why Auto uses a rolling window. **Rig cost check (2026-10-15, `?debug=1&rigs=off` hides every rig, physics keeps running), arena fps p50/p10:** GitHub runner (no GPU, a floor, not a phone prediction), three runs — High rigs on 60/30, 59.5/30, 30/30; High rigs off 60/60, 59.5/30, 30/30; Low rigs on 60/60, 60/30, 60/30; Low rigs off 60/60, 60/30, 60/30. Apple-silicon Mac: 60/60 in all four (capped); uncapped timing there is unreliable (bimodal), so not used. **Conclusion: rigs are not the main cost.** Hiding them changed the median in no run; Low detail (the parallax/shaft/tuft/shadow layers) doubled it on the slowest runner (30 → 60). So the planned fix (pre-render enemy poses into sprite frames for Low, one image per enemy instead of five) is **not justified by this data — not planned**; revisit only if real phones show otherwise. The earlier 'Low does not lift the median' reading (one run, 20 vs 20) did not repeat. Next: measure on 3 real phones
 
 ## ENEMY — Enemies
+
+- [x] ENEMY-09 Rifleman patrols (never walks off ledges), needs line of sight to aim, flinches when hit (done 2026-10-15)
+- [x] ENEMY-10 Grenadier: different rig and weapon, telegraphed wind-up, lobs bouncing grenades over cover (done 2026-10-15)
+- [x] ENEMY-11 Turret installation: armoured when closed, tracks with a laser telegraph, 3-round bursts, leaves a wreck (done 2026-10-15)
 
 - [x] ENEMY-01 Enemy base class + state machine (G3) (done 2026-10-15)
 - [x] ENEMY-02 Contractor rifleman with aim-flash telegraph (G3) (done 2026-10-15)
@@ -137,7 +153,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [ ] ENEMY-05 Skitter swarm (groups of 6) (G5)
 - [ ] ENEMY-06 Gantry sniper (laser line, then shot) (G5)
 - [ ] ENEMY-07 Jetpack lancer (G6)
-- [ ] ENEMY-08 Spawner / wave trigger system (G5) — started: arena trigger that locks the camera and drops 4 riflemen
+- [ ] ENEMY-08 Spawner / wave trigger system (G5) — started: arena trigger that locks the camera and drops riflemen and a grenadier
 
 ## BOSS — Minibosses and bosses
 
@@ -158,6 +174,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [ ] LEVEL-06 Rising-tide hazard (G5)
 - [ ] LEVEL-07 Moving crane platforms (G5)
 - [ ] LEVEL-08 Optional dock-crew rescues + secrets (G5) — started: grate-hidden supply cache in the basin
+- [x] LEVEL-12 Collapsing bridge over channel 2, explosive barrels (chain reactions), helicopter ground shadow (done 2026-10-15)
 - [ ] LEVEL-09 Region 2 Erg Saar stages 1–3 (G6)
 - [ ] LEVEL-10 Region 3 Kessler Works (G6–G7)
 - [ ] LEVEL-11 Region 4 Saikō Tiers (G7)
@@ -168,7 +185,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] INPUT-02 Gamepad via browser Gamepad API (G3) (done 2026-10-15)
 - [x] INPUT-03 Touch: virtual stick, jump, fire, swap (G3) (done 2026-10-15)
 - [x] INPUT-04 Touch aim-assist and auto-fire options (G3) (done 2026-10-15)
-- [ ] INPUT-05 Rebinding screen (G6)
+- [ ] INPUT-05 Rebinding screen (G6) — data path done (CHAR-22); the screen itself is still to do
 - [ ] INPUT-06 Local co-op: second player on gamepad (G6)
 
 ## UI — Menus, HUD, results

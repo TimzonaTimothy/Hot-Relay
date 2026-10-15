@@ -17,14 +17,33 @@ export interface PlatformDef {
   kind: PlatformKind;
   /** Floating pontoon: drawn as a moored float that bobs (collision stays fixed). */
   pontoon?: boolean;
+  /** Segment of a collapsing bridge (segments with the same id fall in order). */
+  bridge?: number;
 }
 
-export type EnemyType = 'rifleman';
+export type EnemyType = 'rifleman' | 'grenadier';
 
 export interface EnemySpawn {
   type: EnemyType;
   x: number;
   y: number;
+  /** Riflemen: patrol this far either side of the spawn point while idle. */
+  patrol?: number;
+}
+
+export interface TurretDef {
+  x: number;
+  /** Ground the turret sits on. */
+  y: number;
+  facing: 1 | -1;
+}
+
+export interface PodDef {
+  /** The pod launches when the player passes this x. */
+  triggerX: number;
+  /** Flight height. */
+  y: number;
+  give: 'fan' | 'hornet' | 'lance' | 'ammo';
 }
 
 /** A section where the camera locks until every spawned enemy is cleared. */
@@ -70,6 +89,11 @@ export interface StageDef {
   grates: GrateDef[];
   /** Supply caches (usually behind a grate). */
   caches: { x: number; y: number }[];
+  turrets: TurretDef[];
+  /** Explosive barrels (feet positions). */
+  barrels: { x: number; y: number }[];
+  /** Supply pods that fly across and drop weapon/ammo pickups when shot down. */
+  pods: PodDef[];
   checkpoints: { x: number; y: number }[];
   arenas: ArenaDef[];
   goal: { x: number; y: number };
