@@ -132,7 +132,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 
 - [x] ENEMY-01 Enemy base class + state machine (G3) (done 2026-10-15)
 - [x] ENEMY-02 Contractor rifleman with aim-flash telegraph (G3) (done 2026-10-15)
-- [ ] ENEMY-03 Riot contractor (front shield) (G5)
+- [ ] ENEMY-03 Riot contractor (front shield) (G5) — a first version was built on the old Gate 3 prototype: branch `enemy-riot-contractor` (closed PR #1). Shield blocks frontal fire until it lowers to aim/fire or is stunned; rebuild it on the rig system
 - [ ] ENEMY-04 Dock Crawler (walls and ceilings) (G5)
 - [ ] ENEMY-05 Skitter swarm (groups of 6) (G5)
 - [ ] ENEMY-06 Gantry sniper (laser line, then shot) (G5)
