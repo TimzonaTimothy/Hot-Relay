@@ -3,6 +3,7 @@ import type { MenuItem } from './MenuList';
 import { saves } from '../systems/services';
 import { sfx } from '../systems/Sfx';
 import type { Settings, TouchMode } from '../systems/SaveStore';
+import { DETAIL_SETTINGS } from '../systems/detail';
 
 const onOff = (v: boolean) => (v ? 'On' : 'Off');
 
@@ -13,6 +14,7 @@ function toggle(
 }
 
 const TOUCH_MODES: TouchMode[] = ['auto', 'on', 'off'];
+const cap = (v: string) => `${v[0]?.toUpperCase()}${v.slice(1)}`;
 
 export function settingsItems(): MenuItem[] {
   const s = () => saves.data.settings;
@@ -28,6 +30,15 @@ export function settingsItems(): MenuItem[] {
         const i = TOUCH_MODES.indexOf(s().touchControls);
         const next = TOUCH_MODES[(i + dir + TOUCH_MODES.length) % TOUCH_MODES.length] ?? 'auto';
         void saves.updateSettings({ touchControls: next });
+      },
+    },
+    {
+      // PERF-01: Low hides the mid/near parallax, water light shafts, grass tufts and shadows
+      label: () => `Detail: ${cap(s().detail)}`,
+      adjust: (dir) => {
+        const i = DETAIL_SETTINGS.indexOf(s().detail);
+        const n = DETAIL_SETTINGS.length;
+        void saves.updateSettings({ detail: DETAIL_SETTINGS[(i + dir + n) % n] ?? 'auto' });
       },
     },
     {

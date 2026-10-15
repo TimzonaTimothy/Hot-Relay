@@ -193,6 +193,9 @@ export class Effects {
     if (n > 0) this.washE.explode(n, x + (Math.random() * 2 - 1) * 26, groundY - 1);
   }
 
+  /** Contact shadows on/off (off in low detail, PERF-01). */
+  shadows = true;
+
   /** Contact shadow under a character: smaller and fainter the higher they are. */
   placeShadow(
     img: Phaser.GameObjects.Image,
@@ -201,7 +204,7 @@ export class Effects {
     width: number,
     hidden: boolean,
   ): void {
-    if (hidden) {
+    if (hidden || !this.shadows) {
       img.setVisible(false);
       return;
     }

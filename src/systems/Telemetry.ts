@@ -17,6 +17,7 @@ export type TelemetryEvent =
   | 'stage_quit'
   | 'stress_result'
   | 'insertion_done'
+  | 'detail_change'
   | 'secret_route'
   | 'secret_found'
   | 'squad_selected';
@@ -57,12 +58,14 @@ declare global {
   interface Window {
     __hotRelay?: {
       telemetry: Telemetry;
-      stress?: { p50: number; p10: number; frames: number };
+      stress?: { p50: number; p10: number; frames: number; detail?: 'high' | 'low' };
       /** Debug hooks (?debug=1) used by the smoke test. */
       debug?: {
         teleport(x: number, feetY: number): void;
         setInvulnerable(ms: number): void;
         clearEnemies(): void;
+        /** Visible objects per texture key (PERF-01 checks). */
+        visibleByTexture(keys: string[]): Record<string, number>;
         /** The live stage scene, for profiling from the console. */
         scene: unknown;
       };

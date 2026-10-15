@@ -15,6 +15,7 @@ export class WaterView {
   private readonly shafts: Phaser.GameObjects.Image[] = [];
   private t = 0;
   private tint = 0;
+  private shaftsOn = true;
 
   constructor(
     scene: Phaser.Scene,
@@ -89,12 +90,19 @@ export class WaterView {
         g.fillRect(fx, wave(fx) + 0.6, 2, 0.6);
       }
     }
-    this.shafts.forEach((s, i) => {
-      s.setAlpha(0.07 + Math.sin(this.t * 0.7 + i * 1.7) * 0.04);
-      s.setRotation(-0.25 + Math.sin(this.t * 0.4 + i) * 0.06);
-    });
+    if (this.shaftsOn)
+      this.shafts.forEach((s, i) => {
+        s.setAlpha(0.07 + Math.sin(this.t * 0.7 + i * 1.7) * 0.04);
+        s.setRotation(-0.25 + Math.sin(this.t * 0.4 + i) * 0.06);
+      });
     // ease the screen tint in and out
     this.tint += ((submerged ? 1 : 0) - this.tint) * Math.min(1, frameMs / 120);
     this.underTint.setAlpha(this.tint * 0.22);
+  }
+
+  /** Light shafts on/off (off in low detail, PERF-01). */
+  setShafts(on: boolean): void {
+    this.shaftsOn = on;
+    this.shafts.forEach((s) => s.setVisible(on));
   }
 }

@@ -39,6 +39,10 @@ export class ParallaxStrip {
     return this.images;
   }
 
+  setVisible(on: boolean): void {
+    this.images.forEach((img) => img.setVisible(on));
+  }
+
   /** Set the scroll offset in screen pixels (grows as the view moves right). */
   setOffset(offset: number): void {
     const shift = ((offset % this.tileW) + this.tileW) % this.tileW;

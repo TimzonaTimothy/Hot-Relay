@@ -26,7 +26,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 ## Now
 
 - **Ongoing:** SETUP-02 (owner must enable Pages), PERF-01 (low-detail mode), TEST-01 (needs 3 real devices — now also covers the character rigs, see PERF-01)
-- **Next up:** PERF-01 (measure on real phones), CHAR-16 (second water enemy pass), RES-02…RES-07, TEST-02/03 playtests
+- **Next up:** PERF-01 real-phone numbers (try `?detail=low`), CHAR-16 (second water enemy pass), RES-02…RES-07, TEST-02/03 playtests
 - **Current gate:** G3 prototype + character/swimming/insertion vertical slice → G4 playtests
 - **Blocked:** H2 and H4 need 15–20 real testers (RES-13)
 - **Last session (2026-10-15):** Character system vertical slice: four data-driven operators (Tari added),
@@ -124,7 +124,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] CHAR-15 Stable side camera with ground anchor and water framing (G3) (done 2026-10-15)
 - [ ] CHAR-16 Water combat pass after playtests: eel tuning, more underwater threats (G5)
 - [ ] CHAR-17 Replace procedural poses with painted parts / hand-keyed animation (ART) (G5)
-- [~] PERF-01 Measure stage + stress on 3 real phones; if below target add a low-detail setting (G4) — headless software GL: stage ~22 fps vs ~55 at Gate 3, stress ~46 vs 60; cost is textured fill (parallax, rigs), not CPU
+- [~] PERF-01 Measure stage + stress on 3 real phones; if below target add a low-detail setting (G4) — headless software GL: stage ~22 fps vs ~55 at Gate 3, stress ~46 vs 60; cost is textured fill (parallax, rigs), not CPU. **Low-detail mode done (2026-10-15):** Detail Auto/High/Low in Settings and Pause, `?detail=` flag; Low hides bg-mid/bg-near, water light shafts, grass tufts, contact shadows; Auto drops to Low if the median fps over the first 4 s is below 50 (`systems/detail.ts`, 9 unit tests, e2e check). Measured on an Apple-silicon Mac (headless SwiftShader): capped at 60 fps before and after, both stage and stress; uncapped, Low is ~16% faster than High on the stage (114 vs 98, 96 vs 83 fps median in two runs), no change on stress (only shadows apply there). Still to do: measure on 3 real phones
 
 ## ENEMY — Enemies
 

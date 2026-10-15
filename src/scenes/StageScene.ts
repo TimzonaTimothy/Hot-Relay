@@ -39,6 +39,7 @@ import { saves } from '../systems/services';
 import { computeRank, isBetterRun } from '../systems/rank';
 import { FpsMeter } from '../systems/FpsMeter';
 import { FLAGS } from '../systems/flags';
+import { AutoDetail, resolveDetail, type DetailLevel } from '../systems/detail';
 import { groundBelow } from '../systems/geometry';
 import { pointInWater } from '../systems/water';
 import { hud, HUD_EVENTS } from '../ui/hudState';
@@ -121,12 +122,15 @@ export class StageScene extends Phaser.Scene {
   private camRig!: CameraRig;
   private cinematic: InsertionCinematic | null = null;
   private skippable = false;
-  private parallax: { strip: ParallaxStrip; fx: number; fy: number; y: number }[] = [];
+  private parallax: { key: string; strip: ParallaxStrip; fx: number; fy: number; y: number }[] = [];
   private pontoonArt: { img: Phaser.GameObjects.Image; baseY: number; phase: number }[] = [];
   private fallen: Fallen[] = [];
 
   private fixed = new FixedStep(TUNING.stepMs, TUNING.maxFrameMs);
   private fps = new FpsMeter(600);
+  private autoDetail = new AutoDetail();
+  /** Level currently drawn; null until the first frame applies it. */
+  private detail: DetailLevel | null = null;
   private hitStopMs = 0;
   private status: StageStatus = 'playing';
   private timeMs = 0;
@@ -166,6 +170,8 @@ export class StageScene extends Phaser.Scene {
     this.wasSubmerged = false;
     this.fixed.reset();
     this.fps.reset();
+    this.autoDetail.reset();
+    this.detail = null;
   }
 
   create(): void {
@@ -311,7 +317,7 @@ export class StageScene extends Phaser.Scene {
         depth: DEPTH.parallax,
         scrollFactor: 0,
       });
-      this.parallax.push({ strip, fx, fy, y: oy + y });
+      this.parallax.push({ key, strip, fx, fy, y: oy + y });
     };
     layer('stage-sky', -10, 0.06, 0.1);
     layer('bg-mid', 118, 0.16, 0.25);
@@ -523,10 +529,31 @@ export class StageScene extends Phaser.Scene {
     input.flush();
   }
 
+  // ---------------------------------------------------------------- detail (PERF-01)
+
+  private updateDetail(delta: number): void {
+    const auto = this.autoDetail.addFrame(delta);
+    const level = resolveDetail(saves.data.settings.detail, FLAGS.detail, auto);
+    if (level !== this.detail) this.applyDetail(level);
+  }
+
+  /** Low hides the bg-mid/bg-near parallax, water light shafts, grass tufts and shadows. */
+  private applyDetail(level: DetailLevel): void {
+    const high = level === 'high';
+    if (this.detail !== null)
+      telemetry.log('detail_change', { level, fps: this.autoDetail.medianFps });
+    this.detail = level;
+    for (const p of this.parallax) if (p.key !== 'stage-sky') p.strip.setVisible(high);
+    this.waterView.setShafts(high);
+    this.foliage.setVisible(high);
+    this.fx.shadows = high;
+  }
+
   // ---------------------------------------------------------------- frame loop
 
   override update(_time: number, delta: number): void {
     this.fps.addFrame(delta);
+    this.updateDetail(delta);
     input.update();
 
     if (this.hitStopMs > 0) {
@@ -1437,6 +1464,8 @@ export class StageScene extends Phaser.Scene {
       control: !this.cinematic || this.cinematic.controlReturned,
       secrets: this.secrets,
       fps: this.fps.summary(),
+      detail: this.detail,
+      autoDetail: this.autoDetail.decision,
     };
   }
 
@@ -1444,6 +1473,15 @@ export class StageScene extends Phaser.Scene {
   private exposeDebug(): void {
     if (!window.__hotRelay) return;
     window.__hotRelay.debug = {
+      visibleByTexture: (keys: string[]) => {
+        const out: Record<string, number> = Object.fromEntries(keys.map((k) => [k, 0]));
+        for (const o of this.children.list) {
+          if (!(o instanceof Phaser.GameObjects.Image) || !o.visible) continue;
+          const k = o.texture.key;
+          if (k in out) out[k] = (out[k] ?? 0) + 1;
+        }
+        return out;
+      },
       teleport: (x: number, feetY: number) => {
         this.player.respawnAt(x, feetY);
         this.camRig.snap(this.cameraSubject());

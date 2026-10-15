@@ -16,6 +16,7 @@ export class Foliage {
   private readonly tufts: Tuft[] = [];
   private t = 0;
   private wash: { x: number; strength: number } | null = null;
+  private visible = true;
 
   constructor(scene: Phaser.Scene, spots: readonly { x: number; y: number }[]) {
     spots.forEach((s, i) => {
@@ -29,12 +30,19 @@ export class Foliage {
     });
   }
 
+  /** Tufts on/off (off in low detail, PERF-01). */
+  setVisible(on: boolean): void {
+    this.visible = on;
+    this.tufts.forEach((tf) => tf.img.setVisible(on));
+  }
+
   /** Rotor wash centred at x with strength 0..1 (null to clear). */
   setWash(x: number, strength: number): void {
     this.wash = strength > 0.01 ? { x, strength } : null;
   }
 
   update(frameMs: number, view: Phaser.Geom.Rectangle, walkerX: number, walkerFeetY: number): void {
+    if (!this.visible) return;
     const dt = frameMs / 1000;
     this.t += dt;
     for (const tf of this.tufts) {

@@ -24,6 +24,9 @@ import { FpsMeter } from '../systems/FpsMeter';
 import { input } from '../systems/InputManager';
 import { telemetry } from '../systems/Telemetry';
 import { Effects } from '../stage/Effects';
+import { FLAGS } from '../systems/flags';
+import { saves } from '../systems/services';
+import { resolveDetail } from '../systems/detail';
 
 const ENEMIES = 60;
 const TARGET_BULLETS = 200;
@@ -43,6 +46,7 @@ export class StressScene extends Phaser.Scene {
   private done = false;
   private peakBullets = 0;
   private fx!: Effects;
+  private detail: 'high' | 'low' = 'high';
 
   constructor() {
     super(SCENES.stress);
@@ -81,6 +85,9 @@ export class StressScene extends Phaser.Scene {
     this.physics.add.collider(this.enemies, solids);
     // every rifleman is a full cut-out rig with a contact shadow, as in the stage
     this.fx = new Effects(this, [], []);
+    // Low detail turns shadows off; Auto counts as high so the measurement is of one level.
+    this.detail = resolveDetail(saves.data.settings.detail, FLAGS.detail, 'high');
+    this.fx.shadows = this.detail === 'high';
 
     this.pBullets = new BulletPool(this, 'bullet-p', 120);
     this.eBullets = new BulletPool(this, 'bullet-e', 160);
@@ -175,7 +182,7 @@ export class StressScene extends Phaser.Scene {
       pass,
       ...telemetry.context(),
     });
-    if (window.__hotRelay) window.__hotRelay.stress = s;
+    if (window.__hotRelay) window.__hotRelay.stress = { ...s, detail: this.detail };
     const overlay = this.add
       .rectangle(CANVAS_W, CANVAS_H, CANVAS_W * 2, CANVAS_H * 2, 0x0e1116, 0.85)
       .setDepth(200);

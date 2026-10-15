@@ -4,6 +4,7 @@
  * falling back to memory when IndexedDB is unavailable (private mode, some embedded webviews).
  */
 import type { Rank } from './rank';
+import { isDetailSetting, type DetailSetting } from './detail';
 
 export const SAVE_VERSION = 1;
 const SAVE_KEY = 'hot-relay/save';
@@ -18,6 +19,8 @@ export interface Settings {
   volume: number;
   showFps: boolean;
   touchControls: TouchMode;
+  /** Render detail (PERF-01). */
+  detail: DetailSetting;
 }
 
 export interface BestRun {
@@ -45,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   volume: 0.6,
   showFps: false,
   touchControls: 'auto',
+  detail: 'auto',
 };
 
 export function defaultSave(): SaveData {
@@ -78,6 +82,7 @@ export function migrate(raw: unknown): SaveData {
   }
   settings.volume = Math.min(1, Math.max(0, settings.volume));
   if (!['auto', 'on', 'off'].includes(settings.touchControls)) settings.touchControls = 'auto';
+  if (!isDetailSetting(settings.detail)) settings.detail = 'auto';
 
   const bestByStage: Record<string, BestRun> = {};
   if (isObj(raw.bestByStage)) {

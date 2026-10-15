@@ -4,8 +4,10 @@
  *   ?debug=1     → fps overlay, physics debug toggle (F2), stress test on the menu
  *   ?stage=stress→ jump straight into the stress scene (TEST-01)
  *   ?squad=a,b,c → pick the squad; ?insertion=play|skip → force or skip the opening cinematic
+ *   ?detail=auto|high|low → override the saved Detail setting (PERF-01)
  */
 import type { SquadMode } from './Squad';
+import { isDetailSetting, type DetailSetting } from './detail';
 
 const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
 
@@ -22,4 +24,6 @@ export const FLAGS = {
    * unless asked to play.
    */
   insertion: (params.get('insertion') as 'play' | 'skip' | null) ?? null,
+  /** ?detail=auto|high|low — overrides the saved Detail setting for this session. */
+  detail: ((d) => (isDetailSetting(d) ? d : null))(params.get('detail')) as DetailSetting | null,
 };

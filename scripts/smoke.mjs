@@ -501,6 +501,41 @@ try {
     await ctx.close();
   }
 
+  // 6b. Low detail (PERF-01): ?detail=low hides mid/near parallax, light shafts, tufts, shadows
+  {
+    const keys = ['bg-mid', 'bg-near', 'fx-tuft', 'fx-shadow', 'glow', 'stage-sky'];
+    const visible = async (query) => {
+      const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+      const page = await ctx.newPage();
+      const errs = errorsOf(page);
+      await page.goto(`${BASE}?autostart=1&debug=1${query}`);
+      await page.waitForFunction(() => window.__hotRelay?.state?.detail, null, { timeout: 15000 });
+      await sleep(400);
+      const s = await state(page);
+      const v = await page.evaluate((k) => window.__hotRelay.debug.visibleByTexture(k), keys);
+      if (query.includes('low')) await page.screenshot({ path: `${OUT}/17b-detail-low.png` });
+      await ctx.close();
+      return { detail: s.detail, v, errs };
+    };
+    const hi = await visible('&detail=high');
+    const lo = await visible('&detail=low');
+    const fmt = (v) => keys.map((k) => `${k}:${v[k]}`).join(' ');
+    check(
+      '?detail=low hides parallax, shafts, tufts and shadows',
+      lo.detail === 'low' &&
+        lo.v['bg-mid'] === 0 &&
+        lo.v['bg-near'] === 0 &&
+        lo.v['fx-tuft'] === 0 &&
+        lo.v['fx-shadow'] === 0 &&
+        lo.v['glow'] < hi.v['glow'] &&
+        lo.v['stage-sky'] > 0 &&
+        hi.v['bg-mid'] > 0 &&
+        hi.v['fx-tuft'] > 0 &&
+        lo.errs.length === 0,
+      `high ${fmt(hi.v)} | low ${fmt(lo.v)}`,
+    );
+  }
+
   // 7. Stress test (H10) — headless software rendering, so treat the number as a floor only
   {
     const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
