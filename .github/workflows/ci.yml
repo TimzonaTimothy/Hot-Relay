@@ -28,6 +28,8 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
       - name: Headless smoke test (bot plays the stage, offline launch, touch, stress)
         run: |
           npx playwright install --with-deps chromium

@@ -1,10 +1,15 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// base './' keeps every URL relative, so the same build works on GitHub Pages
-// sub-paths, itch.io iframes and portals.
+// BASE_PATH picks the public base. Default './' keeps every URL relative, so one build works on
+// GitHub Pages sub-paths, itch.io iframes and portals. Hosts can pin it: the Pages workflow uses
+// BASE_PATH=/Hot-Relay/, Vercel uses BASE_PATH=/. The manifest scope and start URL follow it;
+// vite-plugin-pwa registers the service worker under the same base.
+const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env;
+const base = env?.BASE_PATH || './';
+
 export default defineConfig({
-  base: './',
+  base,
   build: {
     target: 'es2022',
     assetsInlineLimit: 0,
@@ -24,8 +29,8 @@ export default defineConfig({
         name: 'Hot Relay',
         short_name: 'Hot Relay',
         description: 'Tag-team run-and-gun. Plays offline.',
-        start_url: './',
-        scope: './',
+        start_url: base,
+        scope: base,
         display: 'fullscreen',
         orientation: 'landscape',
         background_color: '#0e1116',
