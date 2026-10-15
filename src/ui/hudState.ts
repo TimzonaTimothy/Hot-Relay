@@ -1,50 +1,91 @@
-import type { OperatorId } from '../data/operators';
+/** Snapshot the Stage writes every frame and the HUD scene reads. */
+import type { SquadMode } from '../systems/Squad';
 
 export interface HudMember {
-  id: OperatorId;
+  id: string;
+  oxygen: number;
   name: string;
+  role: string;
   color: number;
-  health: number;
-  maxHealth: number;
+  hp: number;
+  maxHp: number;
   armour: number;
   maxArmour: number;
   down: boolean;
   active: boolean;
 }
 
-/** Written by StageScene every tick, drawn by HudScene. */
+export interface HudWeapon {
+  name: string;
+  short: string;
+  mag: number;
+  magSize: number;
+  /** Reload progress 0..1, or null. */
+  reload: number | null;
+  /** Cannot fire here (LMG underwater). */
+  blocked: boolean;
+  /** The other weapon's short name. */
+  other: string;
+}
+
+export interface HudCinematic {
+  active: boolean;
+  letterbox: number;
+  title: string;
+  subtitle: string;
+  titleAlpha: number;
+  skippable: boolean;
+}
+
 export interface HudState {
+  running: boolean;
+  mode: SquadMode;
   members: HudMember[];
-  /** 0 = ready, 1 = just swapped. */
-  swapCooldown: number;
-  canSwap: boolean;
-  solo: boolean;
   livesLeft: number;
-  timeSec: number;
-  score: number;
-  callout: { text: string; color: string; until: number } | null;
-  weapon: string;
-  stageName: string;
+  swapReady: boolean;
+  swapCooldownFrac: number;
+  nextName: string;
+  timeMs: number;
+  status: 'playing' | 'squadDown' | 'clear';
+  showRetry: boolean;
+  fps: { p50: number; p10: number } | null;
+  weapon: HudWeapon | null;
+  /** Active operator's air 0..1 and whether to show the gauge. */
+  oxygen: number;
+  showOxygen: boolean;
+  cinematic: HudCinematic;
+  secrets: number;
 }
 
-export function emptyHud(): HudState {
-  return {
-    members: [],
-    swapCooldown: 0,
-    canSwap: false,
-    solo: false,
-    livesLeft: 0,
-    timeSec: 0,
-    score: 0,
-    callout: null,
-    weapon: '',
-    stageName: '',
-  };
-}
+export const hud: HudState = {
+  running: false,
+  mode: 'relay',
+  members: [],
+  livesLeft: 0,
+  swapReady: false,
+  swapCooldownFrac: 0,
+  nextName: '',
+  timeMs: 0,
+  status: 'playing',
+  showRetry: false,
+  fps: null,
+  weapon: null,
+  oxygen: 1,
+  showOxygen: false,
+  cinematic: {
+    active: false,
+    letterbox: 0,
+    title: '',
+    subtitle: '',
+    titleAlpha: 0,
+    skippable: false,
+  },
+  secrets: 0,
+};
 
-export function formatTime(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  const cs = Math.floor((sec * 100) % 100);
-  return `${m}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
-}
+/** Game-wide event names (emitted on game.events). */
+export const HUD_EVENTS = {
+  callout: 'hud-callout',
+  retry: 'hud-retry',
+  skip: 'hud-skip',
+} as const;

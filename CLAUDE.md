@@ -8,7 +8,8 @@ Keep the **Now** section current. No more than 3 tasks `[~]` at once.
 
 Only build what serves the current gate or a hypothesis (H1–H12 in the plan doc), or what is
 required to ship. Anything else goes on the "Parked — not now" list in `TASKS.md`.
-Current gate: **Gate 3 → Gate 4** (prototype done; playtests next). No backend until Gate 4 passes.
+Current gate: **Gate 3 → Gate 4** (prototype + character vertical slice done; playtests next).
+No backend until Gate 4 passes.
 
 ## Stack
 
@@ -59,32 +60,45 @@ Run `npm run e2e` after gameplay changes.
 ```
 src/
   main.ts                 game config, scene list, service worker
-  config/                 constants (sizes, colours, depths), tuning (feel numbers)
-  data/operators.ts       Kemi / Rurik / Mei-Lin stats and weapons
-  data/stages/            stage format + greybox01 layout
-  entities/               Player, Enemy base, Rifleman, BulletPool
-  scenes/                 Boot, Preload, Menu, Stage, Hud, Pause, Results, Stress
-  systems/                FixedStep, JumpController, Squad, aim, rank, SaveStore,
-                          InputManager, FpsMeter, Telemetry, Sfx, flags, services, pwa
-  ui/                     MenuList, TouchControls, settingsItems, hudState
-tests/logic.test.ts       unit tests
-scripts/smoke.mjs         headless bot + offline/touch/stress checks
-scripts/make-icons.mjs    regenerates placeholder PWA icons
+  config/                 constants (sizes, colours, depths), tuning (feel numbers incl. water, air)
+  data/operators.ts       Kemi / Rurik / Mei-Lin / Tari: stats, swim profile, weapons, entry attack
+  data/weapons.ts         weapon catalogue (fire rate, mag, reload, recoil, underwater rule)
+  data/stages/            stage format + greybox01 layout (water volumes, hazards, insertion)
+  art/                    PLACEHOLDER art drawn at boot: characters (rig atlas), fx (effects,
+                          hazards, helicopter), stageArt (painted platforms), paint helpers
+  entities/               Player (controller), Rig (cut-out visuals), Enemy, Rifleman,
+                          Hazards (Mine, EelDrone, Grate, Cache), BulletPool
+  stage/                  visual-only helpers for StageScene: Effects, WaterView, Foliage,
+                          CameraRig, Insertion (helicopter cinematic)
+  scenes/                 Boot, Preload, Menu, Squad, Stage, Hud, Pause, Results, Stress
+  systems/                pure logic: FixedStep, JumpController, Squad (+air, arsenal), Arsenal,
+                          anim (state machine), water (swim physics), geometry, insertion
+                          (timeline), aim, rank, SaveStore, InputManager, FpsMeter, Telemetry,
+                          Sfx, flags, services, pwa
+  ui/                     theme, MenuList, TouchControls, Backdrop, ParallaxStrip, settings, hudState
+tests/                    logic, anim and character (water, arsenal, air, geometry, insertion) tests
+scripts/smoke.mjs         headless end-to-end checks (see README)
+ASSETS.md                 every placeholder texture and sound, and what replaces it
 ```
+
+## Character system rules
+
+- **Characters are data.** Add an operator in `data/operators.ts` (and a palette + parts in
+  `art/characters.ts` keyed by its `rig`). Weapons are data in `data/weapons.ts`.
+- **Physics body ≠ visuals.** Player and enemies are invisible 12×20 Arcade bodies; the `Rig`
+  draws them. Never size hitboxes from art.
+- **Animation:** `systems/anim.ts` decides the state in fixed steps; `Rig` blends poses per
+  frame. New states go in both, plus the transition table and a test.
+- **Water** is rectangles in stage data (`water`); `systems/water.ts` is the only swim physics.
+  Visuals (`stage/WaterView.ts`) read the same rectangles, so they always match.
+- **Insertion** is a pure timeline (`systems/insertion.ts`) drawn by `stage/Insertion.ts`. The
+  landing height is measured from level geometry, never hard-coded.
+- **Placeholder art keeps its keys.** Final art must reuse the texture keys and pivots in ASSETS.md.
 
 ## URL flags (playtests)
 
 - `?mode=solo` — single operator, 3 lives (H2 baseline). Default is relay.
 - `?debug=1` — fps overlay, F2 toggles physics bodies, menu shows mode toggle + stress test.
 - `?stage=stress` — TEST-01 stress scene (60 enemies, ~200 bullets, 10 s fps measurement).
-- `?autostart=1` — skip the menu (used by the smoke test).
-
-
-# Git Commit Rules
-
-* Never include `Co-Authored-By: Claude` or any Claude-related co-author attribution in commit messages.
-* Never include `Generated with Claude Code` in commit messages or pull request descriptions.
-* Do not add AI tool names, AI attribution, or AI promotional text to Git commit messages.
-* Write concise, conventional commit messages that describe only the actual code changes.
-* Preserve the project's existing Git author identity.
-* Before committing, inspect the proposed commit message and ensure it contains no unwanted AI attribution.
+- `?autostart=1` — skip the menu (used by the smoke test); also skips the insertion.
+- `?squad=a,b,c` — squad in relay order; `?insertion=play|skip` — force or skip the opening cinematic.

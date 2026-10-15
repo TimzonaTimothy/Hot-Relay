@@ -1,25 +1,46 @@
-/** Accumulates frame time and reports how many fixed ticks to run. */
+/**
+ * Fixed-timestep accumulator (CORE-02).
+ * Rendering runs at whatever rate the device manages; game logic and physics always
+ * advance in identical steps, which keeps feel consistent on slow phones and makes
+ * input replays deterministic later (LB-02).
+ */
 export class FixedStep {
-  private acc = 0;
+  private accumulator = 0;
+
   constructor(
     readonly stepMs: number,
-    /** Cap so a long stall (tab switch, GC) can't trigger a spiral of catch-up ticks. */
-    readonly maxSteps = 5,
-  ) {}
+    readonly maxFrameMs = 250,
+    readonly maxStepsPerFrame = 8,
+  ) {
+    if (stepMs <= 0) throw new Error('stepMs must be positive');
+  }
 
-  advance(frameMs: number): number {
-    this.acc += Math.max(0, frameMs);
-    let steps = Math.floor(this.acc / this.stepMs);
-    if (steps > this.maxSteps) {
-      steps = this.maxSteps;
-      this.acc = 0;
-    } else {
-      this.acc -= steps * this.stepMs;
+  /**
+   * Feed one rendered frame's delta. Calls `tick` zero or more times.
+   * @returns number of steps run this frame.
+   */
+  advance(frameDeltaMs: number, tick: (stepMs: number) => void): number {
+    const delta = Math.min(Math.max(frameDeltaMs, 0), this.maxFrameMs);
+    this.accumulator += delta;
+    let steps = 0;
+    while (this.accumulator >= this.stepMs && steps < this.maxStepsPerFrame) {
+      tick(this.stepMs);
+      this.accumulator -= this.stepMs;
+      steps++;
+    }
+    // If we hit the cap the device is far too slow; drop the backlog rather than spiral.
+    if (steps === this.maxStepsPerFrame && this.accumulator >= this.stepMs) {
+      this.accumulator = 0;
     }
     return steps;
   }
 
+  /** 0..1 progress towards the next step (for render interpolation, unused for now). */
+  get alpha(): number {
+    return this.accumulator / this.stepMs;
+  }
+
   reset(): void {
-    this.acc = 0;
+    this.accumulator = 0;
   }
 }

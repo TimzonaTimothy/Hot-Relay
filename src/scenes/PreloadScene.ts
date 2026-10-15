@@ -1,144 +1,50 @@
-import Phaser from 'phaser';
-import { FONT_DISPLAY, VIEW_H, VIEW_W } from '../config/constants';
-import {
-  KITS,
-  OPERATOR_FRAMES,
-  RIFLEMAN_FRAMES,
-  operatorPoses,
-  paintArms,
-  paintCharacter,
-  paintPortrait,
-  riflemanPoses,
-  type WeaponKind,
-} from '../art/characters';
-import {
-  paintBeacon,
-  paintClouds,
-  paintFar,
-  paintFlag,
-  paintForeground,
-  paintMid,
-  paintNear,
-  paintSky,
-  paintWater,
-} from '../art/environment';
-import { paintBoom, paintBullets, paintLeaf, paintMuzzle, paintPuff, paintRing, paintSoftDot, paintSpark } from '../art/fx';
-import { RIGS } from '../art/registry';
-import { SQUAD_ORDER } from '../data/operators';
-import { services } from '../systems/services';
-import type { Strip } from '../art/util';
-
-const WEAPON: Record<string, WeaponKind> = { kemi: 'smg', rurik: 'lmg', meilin: 'dmr' };
-
 /**
- * Paints every placeholder texture in code (no image downloads) and registers animations.
- * Texture keys are stable so real atlases can replace them later.
+ * Builds all PLACEHOLDER textures in code at boot: menu art, cut-out character parts,
+ * effects, hazards, the helicopter (stage art is painted when the stage starts).
+ * Zero image downloads keeps the first load tiny (PWA-05) and everything works offline.
+ * Final art replaces these via atlases (SETUP-05) using the same keys — see ASSETS.md.
  */
+import Phaser from 'phaser';
+import { COLORS, SCENES } from '../config/constants';
+import { FLAGS } from '../systems/flags';
+import { generateArt } from '../ui/artGen';
+import { generateCharacterParts } from '../art/characters';
+import { generateFxArt } from '../art/fx';
+
 export class PreloadScene extends Phaser.Scene {
   constructor() {
-    super('Preload');
+    super(SCENES.preload);
   }
 
   create(): void {
-    this.cameras.main.setBackgroundColor('#0d1712');
-    this.add
-      .text(VIEW_W / 2, VIEW_H / 2, 'PAINTING THE JUNGLE…', { fontFamily: FONT_DISPLAY, fontSize: '28px', color: '#ff9a3c' })
-      .setOrigin(0.5);
-    // Let the label render before the (synchronous) painting starts.
-    this.time.delayedCall(30, () => {
-      this.generate();
-      const f = services.flags;
-      if (f.autostart || f.stage === 'stress') this.scene.start('Stage', { stage: f.stage, mode: f.mode });
-      else this.scene.start('Menu');
-    });
+    this.makeRect('bullet-p', 6, 2, COLORS.playerBullet);
+    this.makeEnemyBullet();
+    this.makeRect('px', 2, 2, COLORS.white);
+    generateArt(this);
+    generateCharacterParts(this);
+    generateFxArt(this);
+
+    if (FLAGS.stress) this.scene.start(SCENES.stress);
+    else if (FLAGS.autostart) this.scene.start(SCENES.stage, { mode: FLAGS.mode });
+    else this.scene.start(SCENES.menu);
   }
 
-  private addStrip(key: string, s: Strip): void {
-    if (this.textures.exists(key)) this.textures.remove(key);
-    const tex = this.textures.addCanvas(key, s.canvas)!;
-    s.names.forEach((n, i) => tex.add(n, 0, i * s.frameW, 0, s.frameW, s.frameH));
+  private gfx(): Phaser.GameObjects.Graphics {
+    return this.add.graphics().setVisible(false);
   }
 
-  private addCanvas(key: string, c: HTMLCanvasElement): void {
-    if (this.textures.exists(key)) this.textures.remove(key);
-    this.textures.addCanvas(key, c);
+  private makeRect(key: string, w: number, h: number, color: number): void {
+    const g = this.gfx();
+    g.fillStyle(color, 1).fillRect(0, 0, w, h);
+    g.generateTexture(key, w, h);
+    g.destroy();
   }
 
-  private generate(): void {
-    for (const id of SQUAD_ORDER) {
-      const kit = KITS[id];
-      const art = paintCharacter(kit, OPERATOR_FRAMES, operatorPoses());
-      const arms = paintArms(kit, WEAPON[id]);
-      this.addStrip(`op_${id}`, art.strip);
-      this.addCanvas(`arm_${id}_r`, arms.right);
-      this.addCanvas(`arm_${id}_l`, arms.left);
-      this.addCanvas(`portrait_${id}`, paintPortrait(kit, 64));
-      RIGS[id] = { shoulder: art.shoulder, muzzle: arms.muzzle, gunY: arms.gunY };
-      this.anims.create({
-        key: `op_${id}_run`,
-        frames: Array.from({ length: 8 }, (_, i) => ({ key: `op_${id}`, frame: `run${i}` })),
-        frameRate: id === 'rurik' ? 12 : 15,
-        repeat: -1,
-      });
-      this.anims.create({
-        key: `op_${id}_idle`,
-        frames: [
-          { key: `op_${id}`, frame: 'idle0' },
-          { key: `op_${id}`, frame: 'idle1' },
-        ],
-        frameRate: 2.5,
-        repeat: -1,
-      });
-    }
-
-    const rm = paintCharacter(KITS.rifleman, RIFLEMAN_FRAMES, riflemanPoses());
-    const rmArms = paintArms(KITS.rifleman, 'rifle');
-    this.addStrip('rifleman', rm.strip);
-    this.addCanvas('arm_rifleman_r', rmArms.right);
-    this.addCanvas('arm_rifleman_l', rmArms.left);
-    RIGS.rifleman = { shoulder: rm.shoulder, muzzle: rmArms.muzzle, gunY: rmArms.gunY };
-    this.anims.create({
-      key: 'rifleman_run',
-      frames: Array.from({ length: 6 }, (_, i) => ({ key: 'rifleman', frame: `run${i}` })),
-      frameRate: 9,
-      repeat: -1,
-    });
-    this.anims.create({
-      key: 'rifleman_idle',
-      frames: [
-        { key: 'rifleman', frame: 'idle0' },
-        { key: 'rifleman', frame: 'idle1' },
-      ],
-      frameRate: 2,
-      repeat: -1,
-    });
-
-    // environment layers
-    this.addCanvas('sky', paintSky(VIEW_W, VIEW_H));
-    this.addCanvas('clouds', paintClouds(1920, 300));
-    this.addCanvas('far', paintFar(1920, 540));
-    this.addCanvas('mid', paintMid(1920, 540));
-    this.addCanvas('near', paintNear(1920, 540));
-    this.addCanvas('water', paintWater(512, 80));
-    this.addCanvas('fg', paintForeground(1920, 160));
-    this.addStrip('beacon', { canvas: paintBeacon(), frameW: 48, frameH: 110, names: ['off', 'on'] });
-    this.addCanvas('flag', paintFlag());
-
-    // bullets + fx
-    for (const [k, c] of Object.entries(paintBullets())) this.addCanvas(k, c);
-    this.addCanvas('muzzle', paintMuzzle());
-    this.addCanvas('glow', paintSoftDot(64, 'rgba(255,250,220,1)'));
-    this.addCanvas('glow_red', paintSoftDot(40, 'rgba(255,110,40,1)'));
-    this.addCanvas('spark', paintSpark());
-    this.addCanvas('puff', paintPuff());
-    this.addCanvas('ring', paintRing('#ffffff'));
-    this.addCanvas('leaf', paintLeaf());
-    this.addStrip('boom', { canvas: paintBoom(), frameW: 80, frameH: 80, names: ['b0', 'b1', 'b2', 'b3', 'b4'] });
-    this.anims.create({
-      key: 'boom',
-      frames: ['b0', 'b1', 'b2', 'b3', 'b4'].map((f) => ({ key: 'boom', frame: f })),
-      frameRate: 18,
-      hideOnComplete: true,
-    });
+  private makeEnemyBullet(): void {
+    const g = this.gfx();
+    g.fillStyle(COLORS.enemyBullet, 1).fillRect(1, 0, 2, 4).fillRect(0, 1, 4, 2);
+    g.fillStyle(0xffe0c0, 1).fillRect(1, 1, 2, 2);
+    g.generateTexture('bullet-e', 4, 4);
+    g.destroy();
   }
 }

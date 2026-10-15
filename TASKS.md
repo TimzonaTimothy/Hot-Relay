@@ -25,13 +25,15 @@ Keep this file in the repo root so Claude Code can read and update it.
 
 ## Now
 
-- **Ongoing:** SETUP-02 (repo exists; auto-deploy still to do), TEST-01 (needs 3 real devices)
-- **Next up:** RES-02, RES-03…RES-07 (play the references), TEST-02 and TEST-03 playtests, ANALYTICS-01
-- **Current gate:** G3 core prototype built and smoke-tested → G4 playtests
+- **Ongoing:** SETUP-02 (needs your GitHub repo), TEST-01 (needs 3 real devices — now also covers the character rigs, see PERF-01)
+- **Next up:** PERF-01 (measure on real phones), CHAR-16 (second water enemy pass), RES-02…RES-07, TEST-02/03 playtests
+- **Current gate:** G3 prototype + character/swimming/insertion vertical slice → G4 playtests
 - **Blocked:** H2 and H4 need 15–20 real testers (RES-13)
-- **Last session (2026-10-15):** Gate 3 prototype built: movement, 8-way shooting, Relay Swap with
-  entry attacks, rifleman enemy, greybox stage with arena, touch + gamepad + keyboard, pause,
-  results, local saves, offline PWA, stress scene, unit tests and a headless smoke test.
+- **Last session (2026-10-15):** Character system vertical slice: four data-driven operators (Tari added),
+  cut-out rigs with an animation state machine, weapons with magazines/reload/switching, swimming
+  (surface, diving, buoyancy, air, drowning, ledge climb), a flooded basin with mines, an eel drone and
+  a secret cache, the helicopter insertion cinematic, squad select, themed HUD/pause/results.
+  62 unit tests and 32 smoke checks pass. Placeholder art and audio are listed in ASSETS.md.
 
 ---
 
@@ -56,7 +58,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 ## SETUP — Project and tooling
 
 - [x] SETUP-01 Repo: Phaser 4 + TypeScript + Vite (G3) (done 2026-10-15)
-- [~] SETUP-02 GitHub repo + auto-deploy to a free static host (G3) — private repo created: github.com/TimzonaTimothy/Hot-Relay; CI + Pages workflow still to add
+- [~] SETUP-02 GitHub repo + auto-deploy to a free static host (G3) — CI + Pages workflow written; needs your GitHub repo (see README)
 - [x] SETUP-03 ESLint + Prettier + strict tsconfig (G3) (done 2026-10-15)
 - [x] SETUP-04 Folder structure: `scenes/`, `entities/`, `systems/`, `data/`, `ui/` (G3) (done 2026-10-15)
 - [ ] SETUP-05 Asset pipeline: sprite atlases, Tiled JSON loading (G3) — started: placeholder textures generated in code with stable keys; atlas + Tiled loader still to do
@@ -87,11 +89,11 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] COMBAT-02 Bullet object pool (G3) (done 2026-10-15)
 - [x] COMBAT-03 Health, armour, damage, death (G3) (done 2026-10-15)
 - [x] COMBAT-04 Hit-stop, hit flash, screen shake (toggleable) (G3) (done 2026-10-15)
-- [ ] COMBAT-05 Sidearms: Kestrel SMG, Bulwark LMG (overheat), Needle DMR (pierce) (G5) — started: three sidearms with distinct fire rate, damage, spread, pierce; LMG overheat to do
+- [ ] COMBAT-05 Sidearms: Kestrel SMG, Bulwark LMG (overheat), Needle DMR (pierce) (G5) — started: weapons with magazines, reload, recoil and a P9 sidearm each (CHAR-03); LMG overheat to do
 - [ ] COMBAT-06 Pickup crates + Fan, Arc Lance, Hornet (G5)
 - [ ] COMBAT-07 Loadout slot + Breacher shotgun (G5)
 - [ ] COMBAT-08 Mei-Lin Mark (weak-point bonus damage) (G5)
-- [ ] COMBAT-09 Weapon data in JSON for tuning (G5)
+- [ ] COMBAT-09 Weapon data in JSON for tuning (G5) — started: all weapon numbers live in src/data/weapons.ts
 
 ## RELAY — Relay Swap
 
@@ -101,7 +103,28 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] RELAY-04 Auto-swap on fall; fail when all three down (G3) (done 2026-10-15)
 - [x] RELAY-05 Single-operator build flag for H2 A/B test (G3) (done 2026-10-15)
 - [ ] RELAY-06 Rescue pods revive a fallen operator (G5)
-- [ ] RELAY-07 Squad HUD: three portraits, armour, swap cooldown (G5) — started: text squad cards with health/armour pips and swap cooldown; portraits to do
+- [x] RELAY-07 Squad HUD: three portraits, armour, swap cooldown (G5) (done 2026-10-15)
+
+## CHAR — Character system, swimming, insertion
+
+- [x] CHAR-01 Data-driven operators: stats, swim profile, two weapons, entry attack (src/data/operators.ts) (G3) (done 2026-10-15)
+- [x] CHAR-02 Fourth operator: Tari (amphibious, speargun, surge dash) (G3) (done 2026-10-15)
+- [x] CHAR-03 Weapon catalogue: fire rate, damage, mag, reload, recoil, underwater rule (src/data/weapons.ts) (G3) (done 2026-10-15)
+- [x] CHAR-04 Arsenal: magazines, auto/manual reload, idle top-up, switch, underwater auto-switch (G3) (done 2026-10-15)
+- [x] CHAR-05 Animation state machine with priorities, transition table, hold times (src/systems/anim.ts) (G3) (done 2026-10-15)
+- [x] CHAR-06 Cut-out rig: blended procedural poses for 15 states, aim arm, recoil, reload, swim tilt (G3) (done 2026-10-15)
+- [x] CHAR-07 Rig parts in one atlas (single batch for all characters) (G3) (done 2026-10-15)
+- [x] CHAR-08 Swimming: surface float, dive, buoyancy, drag, stroke, water jump, sinkers walk the bed (G3) (done 2026-10-15)
+- [x] CHAR-09 Ledge assist: climb out of water onto quays and pontoons (G3) (done 2026-10-15)
+- [x] CHAR-10 Air: per-operator oxygen, drowning damage, refill at surface / on the bench (G3) (done 2026-10-15)
+- [x] CHAR-11 Water rules for bullets: slowed and short-lived in water, speargun unaffected (G3) (done 2026-10-15)
+- [x] CHAR-12 Water hazards: tethered mines, eel drone, breakable grate, supply cache (G3) (done 2026-10-15)
+- [x] CHAR-13 Helicopter insertion: timeline, rope descent, rotor wash, rotor sound, camera handoff, skip after first view (G3) (done 2026-10-15)
+- [x] CHAR-14 Effects: muzzle flash, casings, contact shadows, dust, splashes, bubbles, drips (G3) (done 2026-10-15)
+- [x] CHAR-15 Stable side camera with ground anchor and water framing (G3) (done 2026-10-15)
+- [ ] CHAR-16 Water combat pass after playtests: eel tuning, more underwater threats (G5)
+- [ ] CHAR-17 Replace procedural poses with painted parts / hand-keyed animation (ART) (G5)
+- [ ] PERF-01 Measure stage + stress on 3 real phones; if below target add a low-detail setting (G4) — headless software GL: stage ~22 fps vs ~55 at Gate 3, stress ~46 vs 60; cost is textured fill (parallax, rigs), not CPU
 
 ## ENEMY — Enemies
 
@@ -132,7 +155,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [ ] LEVEL-05 Boss stage (G5)
 - [ ] LEVEL-06 Rising-tide hazard (G5)
 - [ ] LEVEL-07 Moving crane platforms (G5)
-- [ ] LEVEL-08 Optional dock-crew rescues + secrets (G5)
+- [ ] LEVEL-08 Optional dock-crew rescues + secrets (G5) — started: grate-hidden supply cache in the basin
 - [ ] LEVEL-09 Region 2 Erg Saar stages 1–3 (G6)
 - [ ] LEVEL-10 Region 3 Kessler Works (G6–G7)
 - [ ] LEVEL-11 Region 4 Saikō Tiers (G7)
@@ -148,12 +171,12 @@ Keep this file in the repo root so Claude Code can read and update it.
 
 ## UI — Menus, HUD, results
 
-- [ ] UI-01 Main menu (G5)
+- [x] UI-01 Main menu (G5) (done 2026-10-15)
 - [x] UI-02 Pause menu (G3) (done 2026-10-15)
 - [ ] UI-03 Settings: audio, shake, flashing, controls (G5) — started: shake, flashing, aim-assist, auto-fire, touch mode, sound, FPS; rebinding to do
-- [ ] UI-04 In-stage HUD (health, ammo, pickups, squad) (G5) — started: squad, timer, callouts, FPS; ammo and pickups to do
-- [ ] UI-05 Results screen: rank, time, Scrip, medals (G5) — started: rank, time, downs, swaps, continues; Scrip and medals to do
-- [ ] UI-06 Squad + loadout select screen (G5)
+- [ ] UI-04 In-stage HUD (health, ammo, pickups, squad) (G5) — started: squad cards, weapon/ammo/reload, air gauge, timer, callouts, cinematic letterbox; pickups to do
+- [ ] UI-05 Results screen: rank, time, Scrip, medals (G5) — started: rank, time, downs, swaps, continues, secrets; Scrip and medals to do
+- [ ] UI-06 Squad + loadout select screen (G5) — started: squad select (3 of 4, order = relay order); loadout to do
 - [ ] UI-07 Upgrade screen (G5)
 - [ ] UI-08 Story text panels + Ifeoma briefing (G5)
 - [ ] UI-09 "Add to Home Screen" guide (iOS + Android) (G5)
@@ -260,7 +283,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [ ] ART-06 Port Ileya tileset + backgrounds (G5)
 - [ ] ART-07 Region 1 enemy sprites (G5)
 - [ ] ART-08 Harbour Mule + Dredger art (G5)
-- [ ] ART-09 VFX: muzzle flash, impacts, explosions (G5)
+- [ ] ART-09 VFX: muzzle flash, impacts, explosions (G5) — placeholder procedural set in place (ASSETS.md)
 - [ ] ART-10 Cultural reader review, region 1 (G5)
 
 ## AUDIO — Sound and music

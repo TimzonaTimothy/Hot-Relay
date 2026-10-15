@@ -1,81 +1,91 @@
 import Phaser from 'phaser';
-import { FONT, FONT_DISPLAY, VIEW_H, VIEW_W } from '../config/constants';
-import { rankFor, rankScore } from '../systems/rank';
-import { services } from '../systems/services';
+import { CANVAS_W, SCENES } from '../config/constants';
+import { Backdrop } from '../ui/Backdrop';
+import { CSSC, PALETTE, metalFill, plate, txt } from '../ui/theme';
 import { MenuList } from '../ui/MenuList';
-import { formatTime } from '../ui/hudState';
+import { formatTime } from '../systems/rank';
+import { input } from '../systems/InputManager';
 import type { ResultsData } from './StageScene';
 
-const RANK_COLOR: Record<string, string> = { S: '#ffd84a', A: '#9be03c', B: '#8fd0ff', C: '#e8e2d4' };
-
+/** Stage clear screen (basic UI-05): rank, time and the numbers playtests care about. */
 export class ResultsScene extends Phaser.Scene {
   private menu!: MenuList;
-  private r!: ResultsData;
+  private results!: ResultsData;
 
   constructor() {
-    super('Results');
+    super(SCENES.results);
   }
 
   init(data: ResultsData): void {
-    this.r = data;
+    this.results = data;
   }
 
   create(): void {
-    const r = this.r;
-    this.add.image(0, 0, 'sky').setOrigin(0);
-    this.add.tileSprite(0, -30, VIEW_W, 540, 'far').setOrigin(0).setTilePosition(200, 0);
-    this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0x0b120e, 0.62).setOrigin(0);
-    const title = r.cleared ? 'MISSION COMPLETE' : 'MISSION FAILED';
-    this.add
-      .text(VIEW_W / 2, 60, title, { fontFamily: FONT_DISPLAY, fontSize: '50px', color: r.cleared ? '#9be03c' : '#ff7a2e' })
+    const d = this.results;
+    this.cameras.main.setBackgroundColor(PALETTE.ink);
+    new Backdrop(this, { drift: 0.3, dim: 0.55 });
+    const g = this.add.graphics();
+    plate(g, CANVAS_W / 2 - 330, 34, 660, 74, { skew: 28, fill: PALETTE.ember, fillAlpha: 0.9 });
+    const title = this.add
+      .text(CANVAS_W / 2, 70, 'STAGE CLEAR', txt('display', 56, CSSC.bone))
       .setOrigin(0.5)
-      .setStroke('#1b1a17', 8);
+      .setStroke(CSSC.ink, 10);
+    metalFill(title);
     this.add
-      .text(VIEW_W / 2, 104, `${r.stageName} · ${r.mode === 'solo' ? 'Solo' : 'Relay'}`, { fontFamily: FONT, fontSize: '18px', color: '#e8f3df' })
+      .text(
+        CANVAS_W / 2,
+        126,
+        d.stageName.toUpperCase(),
+        txt('hud', 24, CSSC.emberHi, { letterSpacing: 4 }),
+      )
       .setOrigin(0.5);
+    this.add
+      .text(CANVAS_W / 2, 186, d.rank, txt('display', 88, CSSC.signal))
+      .setOrigin(0.5)
+      .setStroke(CSSC.ink, 12);
 
-    if (r.cleared) {
-      const rank = rankFor(r.stats);
-      const rankText = this.add
-        .text(250, 270, rank, { fontFamily: FONT_DISPLAY, fontSize: '170px', color: RANK_COLOR[rank] })
-        .setOrigin(0.5)
-        .setStroke('#1b1a17', 12)
-        .setScale(2.4)
-        .setAlpha(0);
-      this.tweens.add({ targets: rankText, scale: 1, alpha: 1, duration: 380, ease: 'Back.easeOut', delay: 250 });
-      this.add.text(250, 380, `RANK · ${rankScore(r.stats)} pts`, { fontFamily: FONT_DISPLAY, fontSize: '20px', color: '#ffffff' }).setOrigin(0.5);
-      const best = services.save.data.best[r.stageId];
-      if (best) this.add.text(250, 408, `Best: ${best.rank} · ${formatTime(best.timeSec)}`, { fontFamily: FONT, fontSize: '15px', color: '#ffe2a8' }).setOrigin(0.5);
-    }
-
-    const s = r.stats;
     const rows: [string, string][] = [
-      ['Time', `${formatTime(s.timeSec)}  (par ${formatTime(s.parSec)})`],
-      ['Enemies', `${s.kills} / ${s.totalEnemies}`],
-      ['Operators down', String(s.downs)],
-      ['Relay swaps', String(r.swaps)],
-      ['Continues', String(s.continues)],
-      ['Score', String(r.score)],
+      [
+        'TIME',
+        formatTime(d.timeMs) +
+          (d.newBest ? '  · NEW BEST' : `  · BEST ${formatTime(d.bestTimeMs)}`),
+      ],
+      [d.mode === 'relay' ? 'OPERATORS DOWN' : 'LIVES LOST', String(d.downs)],
+      ...(d.mode === 'relay' ? ([['SWAPS', String(d.swaps)]] as [string, string][]) : []),
+      ['CONTINUES', String(d.continues)],
+      ['SECRETS', `${d.secrets ?? 0} / 1`],
     ];
     rows.forEach(([k, v], i) => {
-      const y = 170 + i * 36;
-      this.add.text(470, y, k, { fontFamily: FONT, fontSize: '20px', color: '#b9d6c3' });
-      this.add.text(880, y, v, { fontFamily: FONT_DISPLAY, fontSize: '20px', color: '#ffffff' }).setOrigin(1, 0);
+      const y = 250 + i * 28;
+      this.add
+        .text(CANVAS_W / 2 - 20, y, k, txt('hud', 24, CSSC.muted, { letterSpacing: 2 }))
+        .setOrigin(1, 0.5);
+      this.add
+        .text(CANVAS_W / 2 + 20, y, v, txt('hud', 26, CSSC.bone, { letterSpacing: 1 }))
+        .setOrigin(0, 0.5);
     });
 
-    this.menu = new MenuList(this, 675, 432, [
-      { label: () => 'PLAY AGAIN', action: () => this.again() },
-      { label: () => 'MAIN MENU', action: () => this.scene.start('Menu') },
-    ]);
-    services.input.poll();
-  }
-
-  private again(): void {
-    services.telemetry.log('replay', { stage: this.r.stageId });
-    this.scene.start(this.r.stageId === 'stress' ? 'Stress' : 'Stage', { stage: this.r.stageId, mode: this.r.mode });
+    input.flush();
+    this.menu = new MenuList(
+      this,
+      [
+        {
+          label: () => 'Play again',
+          action: () => this.scene.start(SCENES.stage, { mode: d.mode, squad: d.squad }),
+        },
+        {
+          label: () => 'Change squad',
+          action: () => this.scene.start(SCENES.squad, { mode: d.mode }),
+        },
+        { label: () => 'Menu', action: () => this.scene.start(SCENES.menu, { skipAttract: true }) },
+      ],
+      CANVAS_W / 2,
+      250 + rows.length * 28 + 6,
+      { spacing: 42, fontSize: 18, align: 'center', width: 300, height: 34 },
+    );
   }
 
   override update(): void {
-    this.menu.update(services.input.poll());
+    this.menu.update();
   }
 }

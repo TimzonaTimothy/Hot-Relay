@@ -1,862 +1,1465 @@
+/**
+ * The playable stage (CORE-01..06, RELAY-02..05, LEVEL-01) with the character system,
+ * swimming and the helicopter insertion.
+ *
+ * Everything that affects gameplay happens in `tick`, which runs in fixed steps.
+ * `update` only feeds the fixed-step loop and refreshes visuals, the camera and the HUD.
+ * Helpers in src/stage/ own the visual-only pieces (effects, water, foliage, camera,
+ * insertion); this scene wires them to the rules.
+ */
 import Phaser from 'phaser';
-import { DEPTH, FONT_DISPLAY, STEP_MS, VIEW_H, VIEW_W } from '../config/constants';
+import {
+  CANVAS_H,
+  CANVAS_W,
+  COLORS,
+  DEPTH,
+  SCENES,
+  VIEW_H,
+  VIEW_W,
+  ZOOM,
+} from '../config/constants';
 import { TUNING } from '../config/tuning';
-import { paintBlock, paintFern, paintPalmProp, paintPillar } from '../art/environment';
-import { OPERATORS, SQUAD_ORDER, type OperatorId } from '../data/operators';
-import { STAGES } from '../data/stages';
-import type { Arena, EnemySpawn, Rect, StageDef } from '../data/stages/types';
-import { Bullet, BulletPool } from '../entities/BulletPool';
-import { Enemy, type EnemyContext } from '../entities/Enemy';
-import { Player, type PlayerContext, type ShotOpts } from '../entities/Player';
+import { resolveSquad, type EntryAttack, type OperatorDef } from '../data/operators';
+import { shotStats } from '../data/weapons';
+import { GREYBOX_01 } from '../data/stages/greybox01';
+import type { ArenaDef, PlatformDef, StageDef } from '../data/stages/types';
+import { Player } from '../entities/Player';
 import { Rifleman } from '../entities/Rifleman';
+import { Enemy, type EnemyContext, type EnemyVisualWorld } from '../entities/Enemy';
+import { Cache, EelDrone, Grate, Mine } from '../entities/Hazards';
+import { Bullet, BulletPool } from '../entities/BulletPool';
+import { Rig } from '../entities/Rig';
 import { FixedStep } from '../systems/FixedStep';
-import { Squad } from '../systems/Squad';
-import { assistAim } from '../systems/aim';
-import { rankFor, betterRank, type RunStats } from '../systems/rank';
-import { services, touchActive } from '../systems/services';
-import type { InputFrame } from '../systems/InputManager';
-import type { SfxName } from '../systems/Sfx';
-import { MenuList } from '../ui/MenuList';
-import { emptyHud, type HudState } from '../ui/hudState';
+import { Squad, type SquadMode } from '../systems/Squad';
+import { input, type InputFrame } from '../systems/InputManager';
+import { assistAim, type Vec } from '../systems/aim';
+import { sfx } from '../systems/Sfx';
+import { telemetry } from '../systems/Telemetry';
+import { saves } from '../systems/services';
+import { computeRank, isBetterRun } from '../systems/rank';
+import { FpsMeter } from '../systems/FpsMeter';
+import { FLAGS } from '../systems/flags';
+import { groundBelow } from '../systems/geometry';
+import { pointInWater } from '../systems/water';
+import { hud, HUD_EVENTS } from '../ui/hudState';
+import { ParallaxStrip } from '../ui/ParallaxStrip';
+import type { Settings } from '../systems/SaveStore';
+import { Effects } from '../stage/Effects';
+import { WaterView } from '../stage/WaterView';
+import { Foliage } from '../stage/Foliage';
+import { CameraRig } from '../stage/CameraRig';
+import { InsertionCinematic } from '../stage/Insertion';
+import { ART_RES, paintStage } from '../art/stageArt';
+import { FX_RES } from '../art/fx';
 
-export interface StageData {
-  stage: string;
-  mode: 'relay' | 'solo';
+type StageStatus = 'playing' | 'squadDown' | 'clear';
+
+interface ArenaRuntime {
+  def: ArenaDef;
+  started: boolean;
+  done: boolean;
+  enemies: Set<Enemy>;
+  walls: Phaser.GameObjects.Rectangle[];
+}
+
+interface CheckpointRuntime {
+  x: number;
+  y: number;
+  reached: boolean;
+  flag: Phaser.GameObjects.Image;
+}
+
+/** A downed operator's body playing out its fall while the next one tags in. */
+interface Fallen {
+  rig: Rig;
+  x: number;
+  y: number;
+  vy: number;
+  ms: number;
+  wet: boolean;
+  facing: 1 | -1;
 }
 
 export interface ResultsData {
   stageId: string;
   stageName: string;
-  mode: 'relay' | 'solo';
-  cleared: boolean;
-  stats: RunStats;
+  mode: SquadMode;
+  timeMs: number;
+  downs: number;
   swaps: number;
-  score: number;
+  continues: number;
+  rank: ReturnType<typeof computeRank>;
+  newBest: boolean;
+  bestTimeMs: number;
+  secrets: number;
+  squad: string[];
 }
 
-interface ArenaRun {
-  def: Arena;
-  wave: number;
-  live: Enemy[];
-  state: 'waiting' | 'active' | 'done';
-}
+const GROUND_Y = 240;
+const SURFACE_Y = 252;
 
-const DOWN_DELAY = 0.75;
-
-/**
- * One playable stage. All gameplay advances in `tick(dt)` at a fixed 60 Hz; `update()` only
- * feeds ticks and draws. Arcade runs in customUpdate mode and is stepped from `tick`.
- */
 export class StageScene extends Phaser.Scene {
-  def!: StageDef;
-  mode: 'relay' | 'solo' = 'relay';
-  squad!: Squad;
-  player!: Player;
-  enemies: Enemy[] = [];
-  private enemyGroup!: Phaser.Physics.Arcade.Group;
+  private def: StageDef = GREYBOX_01;
+  private mode: SquadMode = 'relay';
+  private squadIds: string[] | undefined;
+  private settings!: Settings;
+  private squad!: Squad;
+  private player!: Player;
+  private solids!: Phaser.Physics.Arcade.StaticGroup;
+  private oneways!: Phaser.Physics.Arcade.StaticGroup;
+  private breakables!: Phaser.Physics.Arcade.StaticGroup;
+  private enemies: Enemy[] = [];
+  private caches: Cache[] = [];
   private pBullets!: BulletPool;
   private eBullets!: BulletPool;
-  private solids!: Phaser.Physics.Arcade.StaticGroup;
-  private platforms!: Phaser.Physics.Arcade.StaticGroup;
-  private readonly step = new FixedStep(STEP_MS);
-  private hitStop = 0;
-  runTime = 0;
-  private kills = 0;
-  private score = 0;
-  private continues = 0;
-  private totalEnemies = 0;
-  private checkpoint = -1;
-  private beacons: Phaser.GameObjects.Sprite[] = [];
-  private lastSafe = { x: 0, y: 0 };
-  private arenas: ArenaRun[] = [];
-  private downTimer = -1;
-  private fellInWater = false;
-  finished = false;
-  failed = false;
-  private failMenu: MenuList | null = null;
-  private failTexts: Phaser.GameObjects.GameObject[] = [];
-  private hud!: HudState;
-  private layers: { tile: Phaser.GameObjects.TileSprite; factor: number; drift?: number }[] = [];
-  private water!: Phaser.GameObjects.TileSprite;
-  private camTarget = { x: 0, y: VIEW_H / 2 };
-  private lookAhead = 0;
-  private muzzles: { img: Phaser.GameObjects.Image; t: number }[] = [];
-  private booms: Phaser.GameObjects.Sprite[] = [];
+  private telegraph!: Phaser.GameObjects.Graphics;
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
-  private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
   private debris!: Phaser.GameObjects.Particles.ParticleEmitter;
-  private firstFight = false;
-  private lastFrame: InputFrame | null = null;
-  private viewRect = new Phaser.Geom.Rectangle();
-  private tickCount = 0;
+  private fx!: Effects;
+  private waterView!: WaterView;
+  private foliage!: Foliage;
+  private camRig!: CameraRig;
+  private cinematic: InsertionCinematic | null = null;
+  private skippable = false;
+  private parallax: { strip: ParallaxStrip; fx: number; fy: number; y: number }[] = [];
+  private pontoonArt: { img: Phaser.GameObjects.Image; baseY: number; phase: number }[] = [];
+  private fallen: Fallen[] = [];
 
-  constructor(key = 'Stage') {
-    super(key);
+  private fixed = new FixedStep(TUNING.stepMs, TUNING.maxFrameMs);
+  private fps = new FpsMeter(600);
+  private hitStopMs = 0;
+  private status: StageStatus = 'playing';
+  private timeMs = 0;
+  private continues = 0;
+  private secrets = 0;
+  private checkpoint = { x: 0, y: 0 };
+  private checkpoints: CheckpointRuntime[] = [];
+  private arenas: ArenaRuntime[] = [];
+  private firstFightLogged = false;
+  private retryReadyAt = 0;
+  private wasSubmerged = false;
+  private surgeHits = new Set<Enemy>();
+
+  constructor() {
+    super(SCENES.stage);
   }
 
-  init(data: StageData): void {
-    this.def = STAGES[data.stage] ?? STAGES.jungle01;
-    this.mode = data.mode ?? services.flags.mode;
+  init(data: { mode?: SquadMode; squad?: string[] }): void {
+    this.mode = data.mode ?? FLAGS.mode;
+    // a restart (pause menu) keeps the squad that was picked
+    this.squadIds = data.squad ?? this.squadIds;
+    this.def = GREYBOX_01;
     this.enemies = [];
+    this.caches = [];
+    this.checkpoints = [];
     this.arenas = [];
-    this.beacons = [];
-    this.layers = [];
-    this.muzzles = [];
-    this.booms = [];
-    this.runTime = 0;
-    this.kills = this.score = this.continues = 0;
-    this.checkpoint = -1;
-    this.hitStop = 0;
-    this.downTimer = -1;
-    this.finished = this.failed = false;
-    this.failMenu = null;
-    this.failTexts = [];
-    this.firstFight = false;
-    this.tickCount = 0;
-    this.step.reset();
+    this.parallax = [];
+    this.pontoonArt = [];
+    this.fallen = [];
+    this.cinematic = null;
+    this.status = 'playing';
+    this.timeMs = 0;
+    this.continues = 0;
+    this.secrets = 0;
+    this.hitStopMs = 0;
+    this.firstFightLogged = false;
+    this.wasSubmerged = false;
+    this.fixed.reset();
+    this.fps.reset();
   }
 
   create(): void {
-    const d = this.def;
-    const solo = this.mode === 'solo';
-    this.physics.world.setBounds(0, -400, d.width, d.height + 800);
+    this.settings = saves.data.settings;
+    const ids =
+      this.squadIds ??
+      FLAGS.squad ??
+      (saves.data.lastSquad.length ? saves.data.lastSquad : undefined);
+    this.squad = new Squad(resolveSquad(ids), this.mode, {
+      swapCooldownMs: TUNING.swapCooldownMs,
+      benchArmourRegenMs: TUNING.benchArmourRegenMs,
+      soloLives: 3,
+      drownTickMs: TUNING.oxygen.drownTickMs,
+      oxygenRefillRate: TUNING.oxygen.refillRate,
+      benchOxygenRefillRate: TUNING.oxygen.benchRefillRate,
+    });
+
+    const { width, height } = this.def;
+    this.physics.world.setBounds(0, 0, width, height + 120);
+    this.physics.world.setBoundsCollision(true, true, false, false);
     this.physics.world.gravity.y = TUNING.gravity;
 
     this.buildBackground();
-    this.buildTerrain();
-    this.buildProps();
+    this.fx = new Effects(this, this.def.platforms, this.def.water);
+    this.buildLevel();
+    this.waterView = new WaterView(this, this.def.water);
+    this.foliage = new Foliage(this, this.def.tufts);
 
-    this.squad = new Squad(
-      SQUAD_ORDER.map((id) => ({ id, health: OPERATORS[id].health, armour: OPERATORS[id].armour })),
-      { swapCooldown: TUNING.relay.swapCooldown, benchRegen: TUNING.relay.benchRegen, soloLives: solo ? TUNING.solo.lives : undefined },
-    );
-    this.player = new Player(this, d.spawn.x, d.spawn.y, OPERATORS[this.squad.current.id as OperatorId]);
-    this.player.god = services.flags.debug && new URLSearchParams(location.search).get('god') === '1';
-    this.lastSafe = { ...d.spawn };
+    const lead = this.squad.active;
+    this.player = new Player(this, this.def.start.x, this.def.start.y, lead.def, {
+      platforms: this.def.platforms,
+      water: this.def.water,
+      fx: this.fx,
+    });
+    this.player.setOperator(lead.def, lead.arsenal);
+    this.player.setCollideWorldBounds(true);
+    this.checkpoint = { ...this.def.start };
 
-    this.pBullets = new BulletPool(this, 'player', 90);
-    this.eBullets = new BulletPool(this, 'enemy', TUNING.bullet.poolSize);
-    this.enemyGroup = this.physics.add.group();
-    d.enemies.forEach((e, i) => this.spawnEnemy(e, i));
-    this.totalEnemies = d.enemies.length + d.arenas.reduce((n, a) => n + a.waves.flat().length, 0);
-    this.arenas = d.arenas.map((a) => ({ def: a, wave: -1, live: [], state: 'waiting' }));
+    this.def.enemies.forEach((e) => this.spawnRifleman(e.x, e.y));
+    this.def.mines.forEach((m) => {
+      const floor = groundBelow(this.def.platforms, m.x, m.y) ?? m.y + 40;
+      this.enemies.push(new Mine(this, m.x, m.y, floor));
+    });
+    this.def.eels.forEach((e) => {
+      const pool = this.def.water.find((v) => pointInWater(e.x, e.y, [v]));
+      if (pool) this.enemies.push(new EelDrone(this, e.x, e.y, e.minX, e.maxX, e.y, pool));
+    });
+    this.def.caches.forEach((c) => this.caches.push(new Cache(this, c.x, c.y)));
+    this.arenas = this.def.arenas.map((def) => ({
+      def,
+      started: false,
+      done: false,
+      enemies: new Set(),
+      walls: [],
+    }));
 
-    this.buildFx();
+    this.pBullets = new BulletPool(this, 'bullet-p', 90);
+    this.eBullets = new BulletPool(this, 'bullet-e', 120);
+    this.telegraph = this.add.graphics().setDepth(DEPTH.fx);
+    this.sparks = this.add
+      .particles(0, 0, 'px', {
+        speed: { min: 30, max: 120 },
+        lifespan: 220,
+        scale: { start: 1, end: 0 },
+        tint: [0xfff2a8, 0xffffff],
+        gravityY: 200,
+        emitting: false,
+      })
+      .setDepth(DEPTH.fx);
+    this.debris = this.add
+      .particles(0, 0, 'px', {
+        speed: { min: 60, max: 200 },
+        lifespan: 480,
+        scale: { start: 1.5, end: 0 },
+        tint: [COLORS.enemy, COLORS.enemyDark, 0xffb070],
+        gravityY: 500,
+        emitting: false,
+      })
+      .setDepth(DEPTH.fx);
+
     this.addColliders();
 
     const cam = this.cameras.main;
-    cam.setBounds(0, 0, d.width, d.height);
-    this.camTarget.x = d.spawn.x + TUNING.camera.lookAhead;
-    cam.startFollow(this.camTarget, false, TUNING.camera.lerp, 0);
-    cam.centerOn(this.camTarget.x, VIEW_H / 2);
+    cam.setZoom(ZOOM);
+    cam.setBackgroundColor(COLORS.bg);
+    this.camRig = new CameraRig(cam);
+    this.camRig.setBounds(0, 0, width, height);
 
-    this.hud = emptyHud();
-    this.hud.stageName = d.name;
-    this.hud.solo = solo;
-    this.registry.set('hud', this.hud);
-    this.scene.launch('Hud');
-    this.scene.bringToTop('Hud');
-    this.updateHud();
-    this.callout(d.id === 'stress' ? 'STRESS TEST' : solo ? 'SOLO RUN — 3 LIVES' : 'RELAY READY', '#ffe2a8', 1.6);
+    this.startInsertion();
+    this.camRig.focusX = this.cinematic ? this.cinematic.frame.cameraX : null;
+    this.camRig.snap(this.cameraSubject());
 
-    const onHidden = () => {
-      if (document.hidden && this.scene.isActive() && !this.finished) this.pause();
-    };
-    document.addEventListener('visibilitychange', onHidden);
+    this.events.on('enemy-died', this.onEnemyDied, this);
+    this.events.on('mine-exploded', (x: number, y: number, m: Enemy) =>
+      this.explode(x, y, 30, 1, m),
+    );
+    this.game.events.on(Phaser.Core.Events.HIDDEN, this.onHidden, this);
+    this.game.events.on(HUD_EVENTS.retry, this.tryRetry, this);
+    this.game.events.on(HUD_EVENTS.skip, this.trySkip, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      document.removeEventListener('visibilitychange', onHidden);
-      this.scene.stop('Hud');
-    });
-    this.events.on(Phaser.Scenes.Events.RESUME, () => {
-      this.step.reset();
-      services.sfx.resume();
+      this.game.events.off(Phaser.Core.Events.HIDDEN, this.onHidden, this);
+      this.game.events.off(HUD_EVENTS.retry, this.tryRetry, this);
+      this.game.events.off(HUD_EVENTS.skip, this.trySkip, this);
+      this.cinematic?.destroy();
+      sfx.stopRotor();
+      hud.running = false;
+      hud.cinematic.active = false;
     });
 
-    services.save.data.plays += 1;
-    void services.save.save();
-    services.telemetry.log('stage_start', { stage: d.id, mode: this.mode, touch: touchActive() });
-    this.exposeForTests();
+    if (!this.scene.isActive(SCENES.hud)) this.scene.launch(SCENES.hud);
+    else this.scene.get(SCENES.hud).scene.restart();
+    this.scene.bringToTop(SCENES.hud);
+
+    input.flush();
+    saves.data.stats.runsStarted++;
+    void saves.save();
+    telemetry.log('stage_start', {
+      stage: this.def.id,
+      mode: this.mode,
+      squad: this.squad.members.map((m) => m.def.id).join(','),
+      insertion: this.cinematic ? (this.skippable ? 'skippable' : 'first') : 'none',
+      ...telemetry.context(),
+    });
+    if (FLAGS.debug) {
+      this.input.keyboard?.on('keydown-F2', () => this.toggleDebugDraw());
+      this.exposeDebug();
+    }
+    this.exposeState();
   }
 
-  /* ------------------------------------------------------------------ building */
+  // ---------------------------------------------------------------- level building
 
   private buildBackground(): void {
-    const d = this.def;
-    this.add.image(0, 0, 'sky').setOrigin(0).setScrollFactor(0).setDepth(DEPTH.sky);
-    const layer = (key: string, y: number, h: number, factor: number, depth: number, drift = 0) => {
-      const tile = this.add.tileSprite(0, y, VIEW_W, h, key).setOrigin(0).setScrollFactor(0).setDepth(depth);
-      this.layers.push({ tile, factor, drift });
-      return tile;
+    // Objects that do not scroll 1:1 are placed around the zoomed camera's centre, so they
+    // shift by half the gap between canvas size and view size to line up with the screen.
+    const ox = (CANVAS_W - VIEW_W) / 2;
+    const oy = (CANVAS_H - VIEW_H) / 2;
+    // Sky, sun and the far skyline are baked into one opaque tile: on fill-rate-limited
+    // devices every full-screen layer costs, so the distant backdrop is drawn exactly once.
+    this.bakeSky();
+    const layer = (key: string, y: number, fx: number, fy: number) => {
+      const strip = new ParallaxStrip(this, key, ox, oy + y, VIEW_W, 1, {
+        depth: DEPTH.parallax,
+        scrollFactor: 0,
+      });
+      this.parallax.push({ strip, fx, fy, y: oy + y });
     };
-    layer('clouds', 10, 300, 0.05, DEPTH.sky + 1, 6);
-    layer('far', -30, 540, 0.15, DEPTH.far);
-    layer('mid', 40, 540, 0.4, DEPTH.mid);
-    layer('near', 0, 540, 0.72, DEPTH.near);
-    this.water = this.add
-      .tileSprite(0, d.waterY - 6, d.width, d.height - d.waterY + 10, 'water')
-      .setOrigin(0)
-      .setDepth(DEPTH.water);
-    const fg = layer('fg', VIEW_H - 120, 160, 1.25, DEPTH.foreground);
-    fg.setAlpha(0.95);
+    layer('stage-sky', -10, 0.06, 0.1);
+    layer('bg-mid', 118, 0.16, 0.25);
+    layer('bg-near', 182, 0.4, 0.5);
   }
 
-  private buildTerrain(): void {
-    const d = this.def;
+  /** PLACEHOLDER: dusk sky + low sun + far cranes in one 512×290 tile (repeats horizontally). */
+  private bakeSky(): void {
+    if (this.textures.exists('stage-sky')) return;
+    const W = 512;
+    const H = 290;
+    const tex = this.textures.createCanvas('stage-sky', W, H);
+    if (!tex) return;
+    const c = tex.getContext();
+    const g = c.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#0a1120');
+    g.addColorStop(0.55, '#4a2238');
+    g.addColorStop(0.95, '#c4552a');
+    g.addColorStop(1, '#c4552a');
+    c.fillStyle = g;
+    c.fillRect(0, 0, W, H);
+    const sx = 350;
+    const sy = 192;
+    const glow = c.createRadialGradient(sx, sy, 0, sx, sy, 150);
+    glow.addColorStop(0, 'rgba(255,150,70,0.55)');
+    glow.addColorStop(1, 'rgba(255,120,50,0)');
+    c.fillStyle = glow;
+    c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(255,176,102,0.95)';
+    c.beginPath();
+    c.arc(sx, sy, 20, 0, Math.PI * 2);
+    c.fill();
+    const far = this.textures.get('bg-far').getSourceImage() as CanvasImageSource;
+    c.drawImage(far, 0, 60);
+    tex.refresh();
+  }
+
+  private buildLevel(): void {
     this.solids = this.physics.add.staticGroup();
-    this.platforms = this.physics.add.staticGroup();
-    const paintDepth = 200;
-    const addBlock = (r: Rect, i: number, oneWay: boolean) => {
-      const key = `blk_${d.id}_${oneWay ? 'p' : 's'}${i}`;
-      if (!this.textures.exists(key)) {
-        this.textures.addCanvas(key, paintBlock({ w: r.w, h: r.h, paintDepth, oneWay, seed: i * 31 + (oneWay ? 7 : 3) }));
-      }
-      this.add
-        .image(r.x - 10, r.y - 10, key)
-        .setOrigin(0)
-        .setDepth(DEPTH.terrain);
-      if (r.h > paintDepth) {
-        this.add
-          .rectangle(r.x + 3, r.y + paintDepth - 2, r.w - 6, r.h - paintDepth + 4, 0x2a2a20)
-          .setOrigin(0)
-          .setDepth(DEPTH.terrain - 1);
-      }
-      const zone = this.add.zone(r.x + r.w / 2, r.y + r.h / 2, r.w, r.h);
-      (oneWay ? this.platforms : this.solids).add(zone);
-      const body = zone.body as Phaser.Physics.Arcade.StaticBody;
-      if (oneWay) {
-        body.checkCollision.down = false;
-        body.checkCollision.left = false;
-        body.checkCollision.right = false;
-      }
-    };
-    d.solids.forEach((r, i) => addBlock(r, i, false));
-    d.platforms.forEach((r, i) => addBlock(r, i, true));
-  }
+    this.oneways = this.physics.add.staticGroup();
+    this.breakables = this.physics.add.staticGroup();
 
-  private buildProps(): void {
-    const d = this.def;
-    for (const p of d.decor) {
-      const key = `${p.kind}_${p.seed}`;
-      if (!this.textures.exists(key)) {
-        const c = p.kind === 'palm' ? paintPalmProp(p.seed, p.size ?? 190) : p.kind === 'fern' ? paintFern(p.seed, 34) : paintPillar(p.seed);
-        this.textures.addCanvas(key, c);
-      }
-      const depth = p.kind === 'fern' ? DEPTH.decor : DEPTH.terrainBack;
-      this.add
-        .image(p.x, p.y + (p.kind === 'pillar' ? 2 : 4), key)
-        .setOrigin(0.5, 1)
-        .setDepth(depth);
+    for (const p of this.def.platforms) this.addPlatform(p);
+    // PLACEHOLDER painted art over the collision rectangles
+    for (const art of paintStage(this, this.def, GROUND_Y, SURFACE_Y)) {
+      const img = this.add
+        .image(art.x, art.y, art.key)
+        .setOrigin(0, 0)
+        .setScale(1 / ART_RES)
+        .setDepth(art.pontoon ? DEPTH.level + 1 : DEPTH.level);
+      if (art.pontoon) this.pontoonArt.push({ img, baseY: art.y, phase: art.x * 0.05 });
     }
-    d.checkpoints.forEach((c) => {
-      this.beacons.push(this.add.sprite(c.x, c.y + 2, 'beacon', 'off').setOrigin(0.5, 1).setDepth(DEPTH.terrainBack));
+
+    for (const g of this.def.grates) this.breakables.add(new Grate(this, g.x, g.top, g.h));
+
+    this.def.checkpoints.forEach((cp) => {
+      const flag = this.add
+        .image(cp.x, cp.y, 'prop-checkpoint-off')
+        .setOrigin(1.6 / 14, 1)
+        .setScale(1 / FX_RES)
+        .setDepth(DEPTH.pickups);
+      this.checkpoints.push({ x: cp.x, y: cp.y, reached: false, flag });
     });
-    if (d.goal.x < d.width) this.add.image(d.goal.x, d.goal.y + 2, 'flag').setOrigin(0.15, 1).setDepth(DEPTH.terrainBack);
+
+    const g = this.def.goal;
+    const beacon = this.add
+      .image(g.x, g.y, 'prop-goal')
+      .setOrigin(3 / 22, 1)
+      .setScale(1 / FX_RES)
+      .setDepth(DEPTH.pickups);
+    this.add
+      .image(g.x + 0.8, g.y - 49.5, 'glow')
+      .setScale(0.35)
+      .setTint(0xff3b30)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(DEPTH.pickups);
+    this.tweens.add({
+      targets: beacon,
+      scaleX: 0.96 / FX_RES,
+      duration: 700,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
   }
 
-  private buildFx(): void {
-    for (let i = 0; i < 8; i++) {
-      const img = this.add.image(0, 0, 'muzzle').setOrigin(0.15, 0.5).setDepth(DEPTH.fx).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
-      this.muzzles.push({ img, t: 0 });
+  /** Invisible collision rectangle; the art is painted separately. */
+  private addPlatform(p: PlatformDef): void {
+    const rect = this.add
+      .rectangle(p.x + p.w / 2, p.y + p.h / 2, p.w, p.h, 0x000000, 0)
+      .setVisible(false);
+    this.physics.add.existing(rect, true);
+    if (p.kind === 'solid') {
+      this.solids.add(rect);
+    } else {
+      const body = rect.body as Phaser.Physics.Arcade.StaticBody;
+      body.checkCollision.down = false;
+      body.checkCollision.left = false;
+      body.checkCollision.right = false;
+      this.oneways.add(rect);
     }
-    for (let i = 0; i < 10; i++) {
-      const s = this.add.sprite(0, 0, 'boom', 'b0').setDepth(DEPTH.fx).setVisible(false);
-      this.booms.push(s);
-    }
-    this.sparks = this.add
-      .particles(0, 0, 'spark', {
-        speed: { min: 90, max: 320 },
-        lifespan: 220,
-        scale: { start: 1.2, end: 0 },
-        angle: { min: 0, max: 360 },
-        rotate: { min: 0, max: 360 },
-        blendMode: Phaser.BlendModes.ADD,
-        emitting: false,
-      })
-      .setDepth(DEPTH.fx);
-    this.dust = this.add
-      .particles(0, 0, 'puff', {
-        speedX: { min: -60, max: 60 },
-        speedY: { min: -30, max: -5 },
-        lifespan: 420,
-        scale: { start: 0.35, end: 0.9 },
-        alpha: { start: 0.65, end: 0 },
-        emitting: false,
-      })
-      .setDepth(DEPTH.fx - 1);
-    this.debris = this.add
-      .particles(0, 0, 'leaf', {
-        speed: { min: 120, max: 300 },
-        angle: { min: 200, max: 340 },
-        gravityY: 900,
-        lifespan: 700,
-        rotate: { min: 0, max: 360 },
-        tint: [0x6fa846, 0x8a8f96, 0xc8452f, 0x4e5a37],
-        emitting: false,
-      })
-      .setDepth(DEPTH.fx);
   }
 
-  private spawnEnemy(e: EnemySpawn, seed: number, dropIn = false): Enemy {
-    const enemy = new Rifleman(this, e.x, dropIn ? -40 - (seed % 3) * 50 : e.y, seed + 1);
-    this.enemyGroup.add(enemy);
-    (enemy.body as Phaser.Physics.Arcade.Body).setMaxVelocityY(TUNING.maxFall);
-    this.enemies.push(enemy);
-    return enemy;
+  private spawnRifleman(x: number, feetY: number): Enemy {
+    const e = new Rifleman(this, x, feetY, this.fx.makeShadow());
+    this.enemies.push(e);
+    return e;
   }
 
   private addColliders(): void {
     const p = this.player;
-    this.physics.add.collider(p, this.solids);
-    this.physics.add.collider(p, this.platforms, undefined, () => p.dropTimer <= 0 && p.pbody.velocity.y >= 0);
-    this.physics.add.collider(this.enemyGroup, this.solids);
-    this.physics.add.collider(this.enemyGroup, this.platforms);
+    this.physics.add.collider(p, this.solids, () => {
+      if (p.arcadeBody.blocked.down || p.arcadeBody.touching.down) p.groundKind = 'solid';
+    });
+    this.physics.add.collider(p, this.breakables);
+    this.physics.add.collider(
+      p,
+      this.oneways,
+      () => {
+        if ((p.arcadeBody.blocked.down || p.arcadeBody.touching.down) && p.groundKind !== 'solid')
+          p.groundKind = 'oneway';
+      },
+      (_pl, plat) =>
+        this.landsOnOneWay(
+          p.arcadeBody,
+          plat as Phaser.GameObjects.Rectangle,
+          p.dropThroughMs <= 0,
+        ),
+    );
 
-    // Arcade does not guarantee argument order for group-vs-group: identify by type.
-    this.physics.add.overlap(this.pBullets.group, this.enemyGroup, (a, b) => {
-      const bullet = (a instanceof Bullet ? a : b) as Bullet;
-      const enemy = (a instanceof Enemy ? a : b) as Enemy;
-      this.bulletHitsEnemy(bullet, enemy);
+    this.physics.add.collider(this.enemies, this.solids);
+    this.physics.add.collider(this.enemies, this.breakables);
+    // Arcade does not promise argument order when an array meets a group, so callbacks
+    // identify each object by type instead of trusting position.
+    const bulletOf = (a: unknown, b: unknown): Bullet => (a instanceof Bullet ? a : (b as Bullet));
+    const enemyOf = (a: unknown, b: unknown): Enemy => (a instanceof Enemy ? a : (b as Enemy));
+    const grateOf = (a: unknown, b: unknown): Grate => (a instanceof Grate ? a : (b as Grate));
+    const otherOf = (a: unknown, b: unknown, known: unknown) => (a === known ? b : a);
+
+    this.physics.add.collider(this.enemies, this.oneways, undefined, (a, b) => {
+      const en = enemyOf(a, b);
+      const plat = otherOf(a, b, en) as Phaser.GameObjects.Rectangle;
+      return this.landsOnOneWay(en.arcadeBody, plat, true);
     });
-    this.physics.add.overlap(this.eBullets.group, p, (a, b) => {
-      const bullet = (a instanceof Bullet ? a : b) as Bullet;
-      if (!bullet.active || !p.alive) return;
-      if (this.hurtPlayer()) bullet.kill();
+
+    this.physics.add.overlap(this.pBullets.group, this.enemies, (a, b) =>
+      this.onBulletHitEnemy(bulletOf(a, b), enemyOf(a, b)),
+    );
+    this.physics.add.overlap(this.pBullets.group, this.solids, (a, b) =>
+      this.killBullet(this.pBullets, bulletOf(a, b)),
+    );
+    this.physics.add.overlap(this.pBullets.group, this.breakables, (a, b) =>
+      this.onBulletHitGrate(bulletOf(a, b), grateOf(a, b)),
+    );
+    this.physics.add.overlap(this.eBullets.group, this.solids, (a, b) =>
+      this.killBullet(this.eBullets, bulletOf(a, b)),
+    );
+    this.physics.add.overlap(this.eBullets.group, this.breakables, (a, b) =>
+      this.killBullet(this.eBullets, bulletOf(a, b)),
+    );
+    this.physics.add.overlap(p, this.eBullets.group, (a, b) => {
+      const bullet = bulletOf(a, b);
+      if (!bullet.active || p.invulnMs > 0 || this.status !== 'playing') return;
+      const vx = (bullet.body as Phaser.Physics.Arcade.Body).velocity.x;
+      this.eBullets.kill(bullet);
+      this.hurtPlayer(1, bullet.x - Math.sign(vx || 1) * 10);
     });
-    this.physics.add.overlap(p, this.enemyGroup, (_a, b) => {
-      const enemy = (b instanceof Enemy ? b : _a) as Enemy;
-      if (!enemy.dead) this.hurtPlayer();
+    this.physics.add.overlap(p, this.enemies, (a, b) => {
+      const e = enemyOf(a, b);
+      if (e.contactDamage > 0) this.hurtPlayer(TUNING.contactDamage * e.contactDamage, e.x);
     });
-    const killOnWall = (a: unknown, b: unknown) => {
-      const bullet = (a instanceof Bullet ? a : b) as Bullet;
-      if (bullet.active) {
-        this.sparks.explode(4, bullet.x, bullet.y);
-        bullet.kill();
-      }
-    };
-    this.physics.add.overlap(this.pBullets.group, this.solids, killOnWall);
-    this.physics.add.overlap(this.eBullets.group, this.solids, killOnWall);
   }
 
-  /* ------------------------------------------------------------------ loop */
+  /** One-way platforms only stop bodies falling onto them from above. */
+  private landsOnOneWay(
+    body: Phaser.Physics.Arcade.Body,
+    plat: Phaser.GameObjects.Rectangle,
+    allowed: boolean,
+  ): boolean {
+    if (!allowed || body.velocity.y < 0) return false;
+    const top = (plat.body as Phaser.Physics.Arcade.StaticBody).top;
+    return body.prev.y + body.height <= top + 2;
+  }
+
+  // ---------------------------------------------------------------- insertion
+
+  private startInsertion(): void {
+    const ins = this.def.insertion;
+    const play = FLAGS.insertion === 'play' || (FLAGS.insertion !== 'skip' && !FLAGS.autostart);
+    if (!ins || !play) return;
+    // measured from the level so the operator always lands on solid ground
+    const groundY = groundBelow(this.def.platforms, ins.landX, 0) ?? this.def.start.y;
+    this.cinematic = new InsertionCinematic(this, ins, groundY, this.player, this.fx, this.foliage);
+    this.skippable = saves.data.seenInsertion[this.def.id] === true || FLAGS.debug;
+  }
+
+  private trySkip(): void {
+    if (this.cinematic && !this.cinematic.controlReturned && this.skippable) this.cinematic.skip();
+  }
+
+  private finishInsertion(): void {
+    const c = this.cinematic;
+    if (!c) return;
+    saves.data.seenInsertion[this.def.id] = true;
+    void saves.save();
+    telemetry.log('insertion_done', { skipped: c.seq.wasSkipped });
+    this.checkpoint = { x: this.player.x, y: this.player.feetY };
+    this.player.lastSafe = { ...this.checkpoint };
+    input.flush();
+  }
+
+  // ---------------------------------------------------------------- frame loop
 
   override update(_time: number, delta: number): void {
-    services.fps.push(delta);
-    if (this.finished) return;
-    if (this.failed) {
-      this.failMenu?.update(services.input.poll());
-      return;
+    this.fps.addFrame(delta);
+    input.update();
+
+    if (this.hitStopMs > 0) {
+      this.hitStopMs -= delta;
+      this.fixed.reset();
+    } else {
+      this.fixed.advance(delta, (dt) => this.tick(dt));
     }
-    const steps = this.step.advance(delta);
-    for (let i = 0; i < steps; i++) {
-      this.tick(STEP_MS / 1000);
-      if (this.finished || this.failed || !this.scene.isActive()) break;
+
+    const view = this.cameras.main.worldView;
+    this.player.syncVisuals(delta, this.settings.flashing);
+    const visWorld: EnemyVisualWorld = {
+      platforms: this.def.platforms,
+      water: this.def.water,
+      fx: this.fx,
+    };
+    for (const e of this.enemies) e.syncVisual(delta, visWorld);
+    this.updateFallen(delta);
+    this.fx.update(delta);
+    this.waterView.update(delta, view, this.player.submerged);
+    this.foliage.update(delta, view, this.player.x, this.player.feetY);
+    this.cinematic?.render(delta, view);
+    if (this.cinematic?.finished) this.cinematic = null;
+    for (const pa of this.pontoonArt) {
+      pa.phase += delta / 1000;
+      pa.img.y = pa.baseY + Math.sin(pa.phase * 1.8) * 0.7;
     }
-    this.draw(delta / 1000);
+
+    this.camRig.focusX =
+      this.cinematic && !this.cinematic.controlReturned ? this.cinematic.frame.cameraX : null;
+    this.camRig.update(delta, this.cameraSubject());
+    const cam = this.cameras.main;
+    for (const l of this.parallax) {
+      l.strip.setOffset(cam.scrollX * l.fx);
+      for (const img of l.strip.objects) img.y = l.y - cam.scrollY * l.fy;
+    }
+
+    this.writeHud();
+    this.exposeState();
   }
 
-  tick(dt: number): void {
-    this.tickCount++;
-    const f = this.readInput();
-    this.lastFrame = f;
-    if (f.pausePressed) {
-      this.pause();
+  private cameraSubject() {
+    const p = this.player;
+    return { x: p.x, feetY: p.feetY, facing: p.facing, grounded: p.grounded, inWater: p.inWater };
+  }
+
+  private tick(dt: number): void {
+    const inp = input.consume();
+    if (inp.pausePressed && this.status === 'playing') {
+      this.openPause();
       return;
     }
-    if (this.hitStop > 0) {
-      this.hitStop -= dt;
+    if (this.status === 'squadDown') {
+      if ((inp.jumpPressed || inp.confirmPressed) && this.time.now >= this.retryReadyAt)
+        this.retry();
+      this.stepPhysics(dt);
+      this.player.stepAnim(dt);
       return;
     }
-    this.runTime += dt;
+    if (this.status === 'clear') {
+      this.stepPhysics(dt);
+      this.player.stepAnim(dt);
+      return;
+    }
+
+    // opening cinematic: the player watches (or skips, after the first viewing)
+    const c = this.cinematic;
+    if (c && !c.controlReturned) {
+      if (this.skippable && (inp.jumpPressed || inp.confirmPressed || inp.firePressed)) c.skip();
+      c.step(dt);
+      this.stepPhysics(dt);
+      this.player.stepAnim(dt);
+      if (c.controlReturned) this.finishInsertion();
+      return;
+    }
+    c?.step(dt);
+
+    this.timeMs += dt;
     this.squad.tick(dt);
 
-    if (f.swapPressed) this.trySwap();
-    this.player.tick(dt, f, this.playerCtx);
+    if (inp.swapPressed) this.doSwap();
+    if (inp.weaponPressed) this.switchWeapon();
+    if (inp.reloadPressed && this.player.arsenal?.startReload()) sfx.reload();
 
-    const ectx = this.enemyCtx;
-    ectx.player.x = this.player.x;
-    ectx.player.y = this.player.y;
-    ectx.player.alive = this.player.alive;
-    ectx.flashing = services.save.data.settings.flashing;
-    for (const e of this.enemies) e.tick(dt, ectx);
-
-    this.physics.world.singleStep();
-
-    this.afterPhysics(dt);
-    this.player.sync(dt, services.save.data.settings.flashing);
-    for (const e of this.enemies) e.sync(ectx);
-    this.updateHud();
-  }
-
-  private readInput(): InputFrame {
-    const f = services.input.poll();
-    const s = services.save.data.settings;
-    if (touchActive() && s.autoFire && f.source === 'touch' && this.player.alive) {
-      f.fire ||= this.enemies.some((e) => !e.dead && Math.abs(e.x - this.player.x) < 520 && this.inView(e.x, e.y - 40, 0));
-    }
-    return f;
-  }
-
-  private afterPhysics(dt: number): void {
-    const d = this.def;
     const p = this.player;
-    const cam = this.cameras.main;
-    this.viewRect.setTo(cam.scrollX, cam.scrollY, VIEW_W, VIEW_H);
-    this.pBullets.tick(dt, this.viewRect);
-    this.eBullets.tick(dt, this.viewRect);
+    const fireHeld = inp.fireHeld || inp.firePressed || this.autoFireWanted();
+    p.stepMovement(dt, inp);
+    this.onWaterState();
+    this.breathe(dt);
+    this.stepEntryAttacks(dt);
+    if (fireHeld && p.slideMs <= 0 && !p.climbing) this.tryFire(inp);
+    if (p.arsenal?.tick(dt, fireHeld)) sfx.reloadDone();
 
-    for (const m of this.muzzles) {
-      if (m.t > 0) {
-        m.t -= dt;
-        if (m.t <= 0) m.img.setVisible(false);
-      }
-    }
+    this.telegraph.clear();
+    const ctx = this.enemyContext();
+    for (const e of this.enemies) e.step(dt, ctx);
 
-    // Remove dead enemies once their explosion has been spawned.
-    if (this.enemies.some((e) => e.dead)) {
-      this.enemies = this.enemies.filter((e) => {
-        if (!e.dead) return true;
-        e.destroyAll();
-        return false;
-      });
-    }
+    this.stepPhysics(dt);
 
-    if (p.alive) {
-      // Water or a fall below the stage knocks the operator out.
-      if (p.y > d.waterY + 40) {
-        this.fellInWater = true;
-        this.splash(p.x, d.waterY);
-        if (!p.god) this.downPlayer(true);
-        else p.respawn(this.lastSafe.x, this.lastSafe.y - 4, 1);
-      } else if (p.grounded && !p.entering) {
-        const under = this.solidUnder(p.x);
-        if (under && p.x > under.x + 36 && p.x < under.x + under.w - 36) this.lastSafe = { x: p.x, y: under.y };
-      }
-      this.checkProgress();
-    }
+    const view = this.cameras.main.worldView;
+    const splash = (x: number, y: number) => this.fx.splash(x, SURFACE_Y, 0.08 + (y - y));
+    this.pBullets.step(dt, view, this.def.water, splash);
+    this.eBullets.step(dt, view, this.def.water, splash);
+    p.stepAnim(dt);
 
-    if (this.downTimer >= 0) {
-      this.downTimer -= dt;
-      if (this.downTimer < 0) this.handOver();
-    }
+    if (p.pounding && p.grounded) this.shockwave();
 
-    // Camera target with look-ahead in the facing direction.
-    this.lookAhead += (p.facing * TUNING.camera.lookAhead - this.lookAhead) * Math.min(1, dt * 3);
-    this.camTarget.x = p.x + this.lookAhead;
-    const arena = this.arenas.find((a) => a.state === 'active');
-    if (arena) {
-      const minX = arena.def.left + 24;
-      const maxX = arena.def.right - 24;
-      if (p.x < minX || p.x > maxX) {
-        p.x = Phaser.Math.Clamp(p.x, minX, maxX);
-        p.pbody.updateFromGameObject();
-        p.pbody.setVelocityX(0);
-      }
-    } else if (p.x < 20) {
-      p.x = 20;
-      p.pbody.updateFromGameObject();
-    }
+    this.checkCaches();
+    this.checkFallout();
+    this.checkCheckpoints();
+    this.checkArenas();
+    this.checkGoal();
   }
 
-  private draw(dt: number): void {
-    const cam = this.cameras.main;
-    for (const l of this.layers) {
-      l.tile.tilePositionX = cam.scrollX * l.factor + (l.drift ? this.runTime * l.drift : 0);
-    }
-    this.water.tilePositionX += dt * 14;
+  /** Physics advance exactly one fixed step, then sync bodies back to their sprites. */
+  private stepPhysics(dt: number): void {
+    this.physics.world.update(this.time.now, dt);
+    this.physics.world.postUpdate();
   }
 
-  /* ------------------------------------------------------------------ gameplay events */
+  // ---------------------------------------------------------------- water and air
 
-  private checkProgress(): void {
-    const d = this.def;
+  /** Going under or surfacing: weapons adapt (the LMG can't fire underwater). */
+  private onWaterState(): void {
     const p = this.player;
-    d.checkpoints.forEach((c, i) => {
-      if (i > this.checkpoint && p.x >= c.x) {
-        this.checkpoint = i;
-        this.beacons[i]?.setFrame('on');
-        this.callout('CHECKPOINT', '#9ffcff', 1.2);
-        services.sfx.play('checkpoint');
-        services.telemetry.log('checkpoint', { index: i, t: this.runTime });
-      }
+    if (p.submerged === this.wasSubmerged) return;
+    this.wasSubmerged = p.submerged;
+    const a = p.arsenal;
+    if (a?.adaptToWater(p.submerged)) {
+      p.syncWeapon();
+      sfx.weaponSwitch();
+      if (p.submerged)
+        this.game.events.emit(
+          HUD_EVENTS.callout,
+          `${a.current.short} · underwater`,
+          COLORS.uiAccent,
+        );
+    }
+    if (!p.submerged && this.squad.oxygenFrac < TUNING.oxygen.lowFrac) sfx.gasp();
+  }
+
+  private breathe(dt: number): void {
+    const p = this.player;
+    const hits = this.squad.breathe(dt, p.submerged);
+    if (p.submerged && this.squad.oxygenFrac < TUNING.oxygen.lowFrac) sfx.airWarning();
+    if (hits <= 0 || this.status !== 'playing') return;
+    // drowning ignores hit invulnerability, but never knocks you about
+    const r = this.squad.damage(TUNING.oxygen.drownDamage * hits);
+    p.flinch();
+    p.rig.flash(80);
+    sfx.hurt();
+    this.fx.bubbles(p.x, p.y - 6, 8);
+    if (r.downed) this.operatorDown('drown');
+  }
+
+  // ---------------------------------------------------------------- combat
+
+  private touchActive(): boolean {
+    return input.lastSource === 'touch';
+  }
+
+  private autoFireWanted(): boolean {
+    if (!this.settings.autoFire || !this.touchActive()) return false;
+    const r2 = TUNING.autoFireRange ** 2;
+    return this.enemies.some(
+      (e) =>
+        !e.dead &&
+        (e.x - this.player.x) ** 2 + (e.y - this.player.y) ** 2 < r2 &&
+        e.isOnScreen(this.cameras.main.worldView),
+    );
+  }
+
+  private aimDirection(): Vec {
+    const p = this.player;
+    if (!this.settings.aimAssist || !this.touchActive()) return p.aim.dir;
+    const targets = this.enemies
+      .filter((e) => !e.dead && e.isOnScreen(this.cameras.main.worldView))
+      .map((e) => ({ x: e.x, y: e.y - 3 }));
+    return assistAim(
+      { x: p.x, y: p.y },
+      p.aim,
+      p.facing,
+      targets,
+      TUNING.aimAssistRange,
+      TUNING.aimAssistConeDeg,
+    );
+  }
+
+  private tryFire(inp: InputFrame): void {
+    const p = this.player;
+    const a = p.arsenal;
+    if (!a) return;
+    const check = a.canFire(p.submerged);
+    if (check === 'blockedUnderwater') {
+      if (inp.firePressed) sfx.dryFire();
+      return;
+    }
+    if (check !== 'ok') return;
+    const w = a.current;
+    const stats = shotStats(w, p.submerged);
+    if (!stats) return;
+    const dir = this.aimDirection();
+    if (dir !== p.aim.dir) p.aim = { ...p.aim, dir };
+    const spread = Phaser.Math.DegToRad((Math.random() * 2 - 1) * w.spreadDeg);
+    const angle = Math.atan2(dir.y, dir.x) + spread;
+    const m = p.muzzle(dir);
+    this.pBullets.fire({
+      x: m.x,
+      y: m.y,
+      dirX: Math.cos(angle),
+      dirY: Math.sin(angle),
+      speed: stats.speed,
+      damage: stats.damage,
+      pierce: w.pierce,
+      lifeMs: TUNING.bulletLifeMs * stats.lifeScale,
+      length: w.bulletLength,
+      tint: w.tint,
+      wet: p.submerged,
+      waterproof: w.underwater === 'full',
     });
+    a.fire();
+    p.recoil(w.recoil);
+    this.fx.muzzle(m.x, m.y, angle, 0.7 + w.recoil * 0.25, p.submerged, w.tint ?? 0xffffff);
+    if (w.ejectsCasings && !p.submerged) {
+      const port = p.ejectionPort(dir);
+      this.fx.casing(port.x, port.y, p.facing);
+    }
+    sfx.shoot(w.pitch);
+    if (a.reloading) sfx.reload();
+  }
+
+  private switchWeapon(): void {
+    const p = this.player;
+    const a = p.arsenal;
+    if (!a || a.ids.length < 2) return;
+    a.switchNext();
+    p.syncWeapon();
+    sfx.weaponSwitch();
+  }
+
+  private killBullet(pool: BulletPool, b: Bullet): void {
+    if (b.active) pool.kill(b);
+  }
+
+  private onBulletHitEnemy(b: Bullet, e: Enemy): void {
+    if (!b.active || e.dead || b.hitTargets.has(e)) return;
+    b.hitTargets.add(e);
+    this.sparks.explode(4, b.x, b.y);
+    sfx.hit();
+    e.hit(b.damage);
+    b.pierce--;
+    if (b.pierce <= 0) this.pBullets.kill(b);
+  }
+
+  private onBulletHitGrate(b: Bullet, g: Grate): void {
+    if (!b.active || g.broken) return;
+    this.pBullets.kill(b);
+    this.sparks.explode(3, b.x, b.y);
+    sfx.hit();
+    if (g.hit(b.damage)) {
+      this.debris.explode(16, g.x, g.y);
+      this.fx.bubbles(g.x, g.y, 12);
+      this.breakables.remove(g, true, true);
+      sfx.explosion();
+      this.game.events.emit(HUD_EVENTS.callout, 'Hidden route open', COLORS.goal);
+      telemetry.log('secret_route', { t: Math.round(this.timeMs) });
+    }
+  }
+
+  private onEnemyDied(e: Enemy): void {
+    if (!(e instanceof Mine)) {
+      this.debris.explode(14, e.x, e.y);
+      sfx.enemyDie();
+    }
+    this.hitStop(TUNING.hitStopKillMs);
+    this.shake(TUNING.shakeKill);
     for (const a of this.arenas) {
-      if (a.state === 'waiting' && p.x >= a.def.triggerX) this.startArena(a);
-      if (a.state === 'active' && a.live.every((e) => e.dead)) {
-        a.wave++;
-        if (a.wave >= a.def.waves.length) {
-          a.state = 'done';
-          this.cameras.main.setBounds(0, 0, d.width, d.height);
-          this.callout('AREA CLEAR', '#9be03c', 1.4);
-        } else {
-          this.dropWave(a);
+      if (a.started && !a.done && a.enemies.has(e)) {
+        a.enemies.delete(e);
+        if (a.enemies.size === 0) this.endArena(a);
+      }
+    }
+  }
+
+  /** Blast (mines): hurts the player and other enemies in range. */
+  private explode(
+    x: number,
+    y: number,
+    radius: number,
+    damage: number,
+    source: Enemy | null,
+  ): void {
+    const wet = pointInWater(x, y, this.def.water);
+    this.debris.explode(18, x, y);
+    if (wet) {
+      this.fx.bubbles(x, y, 18);
+      this.fx.splash(x, SURFACE_Y, 0.9);
+    } else {
+      this.fx.dust(x, y, 10, 0xffb070);
+    }
+    sfx.explosion();
+    this.shake(TUNING.shakePound);
+    if (this.settings.flashing) this.cameras.main.flash(70, 255, 200, 150);
+    const p = this.player;
+    if (Math.hypot(p.x - x, p.y - y) < radius + 6) {
+      p.invulnMs = 0; // a blast always lands
+      this.hurtPlayer(damage, x);
+    }
+    for (const e of this.enemies) {
+      if (e === source || e.dead) continue;
+      if (Math.hypot(e.x - x, e.y - y) < radius) e.hit(3);
+    }
+  }
+
+  private enemyContext(): EnemyContext {
+    const p = this.player;
+    return {
+      target: { x: p.x, y: p.y },
+      targetInWater: p.inWater,
+      targetSubmerged: p.submerged,
+      water: this.def.water,
+      view: this.cameras.main.worldView,
+      flashing: this.settings.flashing,
+      telegraph: this.telegraph,
+      fireEnemyBullet: (x, y, dirX, dirY, speed) =>
+        this.eBullets.fire({ x, y, dirX, dirY, speed, damage: 1, pierce: 1, lifeMs: 2400 }),
+      explode: (x, y, radius, damage, source) => this.explode(x, y, radius, damage, source),
+      onEngage: () => {
+        if (this.firstFightLogged) return;
+        this.firstFightLogged = true;
+        telemetry.log('first_fight', { msSinceStart: Math.round(this.timeMs) });
+      },
+    };
+  }
+
+  private hurtPlayer(amount: number, fromX?: number): void {
+    const p = this.player;
+    if (this.status !== 'playing' || p.invulnMs > 0 || p.climbing) return;
+    if (this.cinematic && !this.cinematic.controlReturned) return;
+    const r = this.squad.damage(amount);
+    sfx.hurt();
+    this.hitStop(TUNING.hitStopHurtMs);
+    this.shake(TUNING.shakeHurt);
+    if (this.settings.flashing) this.cameras.main.flash(90, 255, 70, 50);
+    if (r.downed) {
+      this.operatorDown('hp');
+      return;
+    }
+    p.knockback(fromX ?? p.x - p.facing);
+    p.invulnMs = TUNING.hurtInvulnMs;
+  }
+
+  // ---------------------------------------------------------------- relay swap
+
+  private tagIn(to: OperatorDef): void {
+    const p = this.player;
+    const m = this.squad.active;
+    p.setOperator(to, m.arsenal);
+    m.arsenal.adaptToWater(p.submerged);
+    p.syncWeapon();
+    this.wasSubmerged = p.submerged;
+  }
+
+  private doSwap(): void {
+    const from = this.squad.active.def;
+    if (this.squad.swap() === null) return;
+    const to = this.squad.active.def;
+    this.tagIn(to);
+    this.player.invulnMs = Math.max(this.player.invulnMs, TUNING.tagInInvulnMs);
+    this.startEntry(to.entry);
+    this.tagRing(to.color);
+    sfx.swap();
+    this.game.events.emit(HUD_EVENTS.callout, `${to.name} in · ${to.entryLabel}`, to.color);
+    telemetry.log('swap', {
+      from: from.id,
+      to: to.id,
+      fromHp: this.squad.members.find((m) => m.def.id === from.id)?.hp,
+      x: Math.round(this.player.x),
+      t: Math.round(this.timeMs),
+    });
+  }
+
+  private startEntry(kind: EntryAttack): void {
+    const p = this.player;
+    switch (kind) {
+      case 'slide':
+        if (p.inWater) break;
+        p.slideMs = TUNING.slideMs;
+        p.slideShotsLeft = TUNING.slideShots;
+        p.slideShotTimer = 0;
+        break;
+      case 'pound':
+        if (p.inWater) break;
+        if (p.grounded) this.shockwave();
+        else p.pounding = true;
+        break;
+      case 'pierce': {
+        const dir = this.aimDirection();
+        const m = p.muzzle(dir);
+        const s = TUNING.pierceShot;
+        this.pBullets.fire({
+          x: m.x,
+          y: m.y,
+          dirX: dir.x,
+          dirY: dir.y,
+          speed: s.speed,
+          damage: s.damage,
+          pierce: s.pierce,
+          lifeMs: TUNING.bulletLifeMs,
+          length: s.length,
+          tint: 0xd9ffd0,
+          waterproof: true,
+        });
+        this.fx.muzzle(m.x, m.y, Math.atan2(dir.y, dir.x), 1.4, p.submerged, 0xd9ffd0);
+        sfx.shoot(1600);
+        break;
+      }
+      case 'surge':
+        p.surgeMs = 240;
+        this.surgeHits.clear();
+        break;
+    }
+  }
+
+  private stepEntryAttacks(dt: number): void {
+    const p = this.player;
+    if (p.slideMs > 0 && p.slideShotsLeft > 0) {
+      p.slideShotTimer -= dt;
+      if (p.slideShotTimer <= 0 && p.arsenal) {
+        const w = p.arsenal.current;
+        const m = p.muzzle({ x: p.facing, y: 0 });
+        this.pBullets.fire({
+          x: m.x,
+          y: m.y,
+          dirX: p.facing,
+          dirY: 0,
+          speed: w.bulletSpeed,
+          damage: w.damage,
+          pierce: 1,
+          lifeMs: TUNING.bulletLifeMs,
+          length: w.bulletLength,
+        });
+        this.fx.muzzle(m.x, m.y, p.facing > 0 ? 0 : Math.PI, 0.9, false);
+        sfx.shoot(w.pitch);
+        p.slideShotsLeft--;
+        p.slideShotTimer = TUNING.slideShotGapMs;
+      }
+    }
+    // Tari's surge rams through enemies in the way
+    if (p.surgeMs > 0) {
+      for (const e of this.enemies) {
+        if (e.dead || this.surgeHits.has(e)) continue;
+        if (Math.abs(e.x - p.x) < 12 && Math.abs(e.y - p.y) < 14) {
+          this.surgeHits.add(e);
+          if (!e.hit(2)) e.stun(700);
+          this.sparks.explode(5, e.x, e.y);
         }
       }
     }
-    if (p.x >= d.goal.x) this.clearStage();
   }
 
-  private startArena(a: ArenaRun): void {
-    a.state = 'active';
-    a.wave = 0;
-    this.cameras.main.setBounds(a.def.left, 0, a.def.right - a.def.left, this.def.height);
-    this.callout('AMBUSH!', '#ff7a2e', 1.4);
-    services.telemetry.log('arena_start', { t: this.runTime });
-    this.dropWave(a);
-  }
-
-  private dropWave(a: ArenaRun): void {
-    a.live = a.def.waves[a.wave].map((s, i) => this.spawnEnemy(s, 100 + a.wave * 10 + i, true));
-  }
-
-  private trySwap(): void {
+  private shockwave(): void {
     const p = this.player;
-    if (!p.alive || p.entering || this.downTimer >= 0) return;
-    const idx = this.squad.swap();
-    if (idx === null) return;
-    this.tagIn(true);
-    services.telemetry.log('swap', { to: this.squad.current.id, t: this.runTime, x: Math.round(p.x) });
-  }
-
-  /** Bring the current squad member onto the field with their entry attack. */
-  private tagIn(entry: boolean): void {
-    const op = OPERATORS[this.squad.current.id as OperatorId];
-    const p = this.player;
-    p.setOperator(op);
-    if (entry) p.startEntry();
-    this.ring(p.x, p.y - 40, op.color, 1.6);
-    services.sfx.play('swap');
-    this.callout(`TAG IN: ${op.name.toUpperCase()}`, '#' + op.color.toString(16).padStart(6, '0'), 0.9);
-  }
-
-  /** Returns true if the hit landed (so the bullet is spent). */
-  private hurtPlayer(): boolean {
-    const p = this.player;
-    if (!p.alive || p.invuln > 0 || p.god || this.downTimer >= 0 || this.finished) return false;
-    const out = this.squad.hit(1);
-    const s = services.save.data.settings;
-    if (out === 'armour') {
-      services.sfx.play('armour');
-      p.invuln = 0.6;
-      this.sparks.explode(10, p.x, p.y - 44);
-    } else if (out === 'health') {
-      services.sfx.play('hurt');
-      p.invuln = TUNING.hit.playerInvuln;
-      this.hitStop = TUNING.hit.hitStop * 1.5;
-      if (s.shake) this.cameras.main.shake(TUNING.hit.shakeDuration * 1000, TUNING.hit.shake * 1.5);
-      if (s.flashing) this.cameras.main.flash(80, 255, 80, 60);
-    } else if (out === 'down') {
-      this.downPlayer(false);
+    p.pounding = false;
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      if (
+        Math.abs(e.x - p.x) <= TUNING.poundRangeX &&
+        Math.abs(e.feetY - p.feetY) <= TUNING.poundRangeY
+      ) {
+        const killed = e.hit(TUNING.poundDamage);
+        if (!killed) e.stun(TUNING.poundStunMs);
+      }
     }
-    return out !== 'ignored';
+    const ring = this.add
+      .ellipse(p.x, p.feetY - 2, 10, 4)
+      .setStrokeStyle(2, 0x9fd0ff)
+      .setDepth(DEPTH.fx);
+    this.tweens.add({
+      targets: ring,
+      scaleX: 15,
+      scaleY: 4,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => ring.destroy(),
+    });
+    this.fx.dust(p.x - 10, p.feetY, 6);
+    this.fx.dust(p.x + 10, p.feetY, 6);
+    this.shake(TUNING.shakePound);
+    sfx.pound();
   }
 
-  private downPlayer(fell: boolean): void {
+  private tagRing(color: number): void {
+    const ring = this.add
+      .circle(this.player.x, this.player.y, 6)
+      .setStrokeStyle(2, color)
+      .setDepth(DEPTH.fx);
+    this.tweens.add({
+      targets: ring,
+      scale: 4,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  /** Leave the downed operator's body behind, playing its death fall (sinks or floats in water). */
+  private spawnFallen(def: OperatorDef): void {
     const p = this.player;
-    if (fell) this.squad.fall();
-    this.fellInWater = fell;
-    services.sfx.play('down');
-    services.telemetry.log('down', { op: p.op.id, x: Math.round(p.x), t: this.runTime, fell });
-    if (!fell) {
-      const ghost = this.add
-        .image(p.x, p.y, `op_${p.op.id}`, 'fall')
-        .setOrigin(0.5, 0.95)
-        .setFlipX(p.facing < 0)
-        .setDepth(DEPTH.player);
-      this.tweens.add({ targets: ghost, angle: -90 * p.facing, y: p.y - 30, alpha: 0, duration: 650, ease: 'Quad.easeOut', onComplete: () => ghost.destroy() });
-      this.explode(p.x, p.y - 40, false);
-    }
-    p.knockOut();
-    this.eBullets.clear();
-    this.downTimer = DOWN_DELAY;
+    const rig = new Rig(this, def.rig, p.arsenal?.current.id ?? def.weapons[0], DEPTH.player - 1);
+    this.fallen.push({
+      rig,
+      x: p.x,
+      y: p.feetY,
+      vy: p.inWater ? 0 : -90,
+      ms: 0,
+      wet: p.inWater,
+      facing: p.facing,
+    });
   }
 
-  private handOver(): void {
-    const next = this.squad.handOver();
-    if (next === null) {
-      this.fail();
+  private updateFallen(frameMs: number): void {
+    const dt = frameMs / 1000;
+    this.fallen = this.fallen.filter((f) => {
+      f.ms += frameMs;
+      if (f.wet) {
+        f.y = Math.max(SURFACE_Y + 6, f.y - 14 * dt); // drifts up towards the surface
+      } else {
+        f.vy += 600 * dt;
+        f.x -= f.facing * 30 * dt * Math.max(0, 1 - f.ms / 500);
+        const floor = groundBelow(this.def.platforms, f.x, f.y - 1, 300) ?? f.y;
+        f.y = Math.min(floor, f.y + f.vy * dt);
+      }
+      f.rig.update(
+        frameMs,
+        {
+          state: 'dead',
+          stateMs: f.ms,
+          vx: 0,
+          vy: 0,
+          runSpeed: 100,
+          aim: { x: f.facing, y: 0.3 },
+          facing: f.facing,
+          armReady: true,
+          reload: null,
+          swimDir: { x: 0, y: 0 },
+        },
+        f.x,
+        f.y,
+      );
+      if (f.wet) f.rig.setTint(0x9fc6d6);
+      f.rig.setAlpha(f.ms < 900 ? 1 : Math.max(0, 1 - (f.ms - 900) / 500));
+      if (f.ms > 1400) {
+        f.rig.destroy();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private operatorDown(cause: 'hp' | 'pit' | 'drown'): void {
+    const p = this.player;
+    const from = this.squad.active.def;
+    const outcome = this.squad.activeDown();
+    sfx.down();
+    this.debris.explode(10, p.x, p.y);
+    telemetry.log('operator_down', {
+      operator: from.id,
+      cause,
+      x: Math.round(p.x),
+      t: Math.round(this.timeMs),
+    });
+
+    if (outcome.kind === 'allDown') {
+      this.squadDown();
       return;
     }
-    const p = this.player;
-    const pos = this.fellInWater ? this.lastSafe : { x: p.x, y: p.y };
-    p.respawn(pos.x, pos.y - 4, this.squad.solo ? 2 : TUNING.relay.entryInvuln);
-    this.fellInWater = false;
-    if (this.squad.solo) {
-      this.ring(p.x, p.y - 40, OPERATORS[p.op.id].color, 1.4);
-      this.callout(`LIVES: ${this.squad.livesLeft}`, '#ffe2a8', 1);
+    this.spawnFallen(from);
+    if (outcome.kind === 'swapped') {
+      const to = this.squad.active.def;
+      this.tagIn(to);
+      this.tagRing(to.color);
+      this.game.events.emit(HUD_EVENTS.callout, `${from.name} down · ${to.name} in`, to.color);
     } else {
-      this.tagIn(true);
+      this.tagIn(from);
+      this.game.events.emit(HUD_EVENTS.callout, `Lives left: ${outcome.livesLeft}`, from.color);
+    }
+    if (cause === 'pit') this.respawnAtSafeSpot();
+    p.invulnMs = TUNING.downInvulnMs;
+  }
+
+  private squadDown(): void {
+    const p = this.player;
+    this.status = 'squadDown';
+    p.dead = true;
+    p.arcadeBody.setVelocityX(0);
+    // underwater the body just hangs where it is (swim physics stop with the squad)
+    if (p.inWater) p.arcadeBody.setVelocityY(0);
+    this.eBullets.clear();
+    this.retryReadyAt = this.time.now + 900;
+    telemetry.log('all_down', { x: Math.round(p.x), t: Math.round(this.timeMs) });
+  }
+
+  private tryRetry(): void {
+    if (this.status === 'squadDown' && this.time.now >= this.retryReadyAt) this.retry();
+  }
+
+  private retry(): void {
+    this.continues++;
+    this.squad.reviveAll();
+    const p = this.player;
+    // an unfinished arena resets so it can trigger again
+    for (const a of this.arenas) {
+      if (a.started && !a.done) {
+        a.enemies.forEach((e) => e.despawn());
+        a.enemies.clear();
+        this.removeArenaWalls(a);
+        a.started = false;
+      }
+    }
+    this.tagIn(this.squad.active.def);
+    p.shown = true;
+    p.respawnAt(this.checkpoint.x, this.checkpoint.y);
+    p.invulnMs = TUNING.downInvulnMs;
+    this.wasSubmerged = false;
+    this.camRig.setBounds(0, 0, this.def.width, this.def.height);
+    this.camRig.snap(this.cameraSubject());
+    this.status = 'playing';
+    input.flush();
+    telemetry.log('retry', { continues: this.continues });
+  }
+
+  // ---------------------------------------------------------------- stage events
+
+  /** Safety net: anything that falls out of the world is put back at the last safe ledge. */
+  private checkFallout(): void {
+    const p = this.player;
+    if (this.status !== 'playing' || p.y < this.def.height + 16) return;
+    const r = this.squad.damage(TUNING.pitDamage);
+    sfx.hurt();
+    if (r.downed) this.operatorDown('pit');
+    else {
+      this.respawnAtSafeSpot();
+      p.invulnMs = TUNING.hurtInvulnMs;
     }
   }
 
-  private fail(): void {
-    this.failed = true;
-    services.telemetry.log('fail', { t: this.runTime, x: Math.round(this.player.x) });
-    const cx = VIEW_W / 2;
-    const shade = this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0x0b120e, 0.72).setOrigin(0).setScrollFactor(0).setDepth(200);
-    const title = this.add
-      .text(cx, 150, 'SQUAD DOWN', { fontFamily: FONT_DISPLAY, fontSize: '64px', color: '#ff7a2e' })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(201)
-      .setStroke('#1b1a17', 8);
-    this.failTexts = [shade, title];
-    this.failMenu = new MenuList(this, cx, 270, [
-      { label: () => 'CONTINUE FROM CHECKPOINT', action: () => this.continueRun() },
-      { label: () => 'QUIT', action: () => this.finish(false) },
-    ], 420);
-    this.failMenu.setDepth(202);
+  private respawnAtSafeSpot(): void {
+    const p = this.player;
+    const spot = this.safeSpot(p.lastSafe.x, p.lastSafe.y);
+    p.respawnAt(spot.x, spot.y);
   }
 
-  private continueRun(): void {
-    this.failMenu?.destroy();
-    this.failMenu = null;
-    this.failTexts.forEach((o) => o.destroy());
-    this.failed = false;
-    this.continues++;
-    services.telemetry.log('continue', { t: this.runTime });
-    this.squad.reviveAll();
-    const c = this.def.checkpoints[this.checkpoint];
-    const pos = c ?? this.def.spawn;
-    this.player.setOperator(OPERATORS[this.squad.current.id as OperatorId]);
-    this.player.respawn(pos.x, pos.y - 4, 2);
-    this.eBullets.clear();
-    this.step.reset();
+  /** The nearest standing position on the platform the player last stood on. */
+  private safeSpot(x: number, feetY: number): { x: number; y: number } {
+    let best: PlatformDef | null = null;
+    let bestGap = 32;
+    for (const pl of this.def.platforms) {
+      if (Math.abs(pl.y - feetY) >= 6) continue;
+      const gap = x < pl.x ? pl.x - x : x > pl.x + pl.w ? x - (pl.x + pl.w) : 0;
+      if (gap <= bestGap) {
+        bestGap = gap;
+        best = pl;
+      }
+    }
+    if (!best) return { ...this.checkpoint };
+    return { x: Phaser.Math.Clamp(x, best.x + 12, best.x + best.w - 12), y: best.y };
   }
 
-  private clearStage(): void {
-    if (this.finished) return;
-    services.sfx.play('clear');
-    this.callout('MISSION COMPLETE', '#9be03c', 3);
-    this.finish(true);
+  private checkCaches(): void {
+    const p = this.player;
+    for (const c of this.caches) {
+      if (c.taken || Math.abs(c.x - p.x) > 16 || Math.abs(c.y - p.feetY) > 16) continue;
+      c.taken = true;
+      c.setVisible(false);
+      this.secrets++;
+      for (const m of this.squad.members) {
+        if (m.down) continue;
+        m.oxygenMs = m.def.swim.oxygenMs;
+        m.armour = Math.min(m.def.maxArmour, m.armour + 1);
+        m.arsenal.refill();
+      }
+      this.fx.bubbles(c.x, c.y - 6, 10);
+      sfx.pickup();
+      this.game.events.emit(HUD_EVENTS.callout, 'Supply cache · air, armour, ammo', COLORS.goal);
+      telemetry.log('secret_found', { t: Math.round(this.timeMs) });
+    }
   }
 
-  private finish(cleared: boolean): void {
-    if (this.finished) return;
-    this.finished = true;
-    const stats: RunStats = {
-      timeSec: this.runTime,
-      parSec: this.def.parSec,
+  private checkCheckpoints(): void {
+    for (const cp of this.checkpoints) {
+      if (cp.reached || this.player.x < cp.x || this.player.inWater) continue;
+      cp.reached = true;
+      cp.flag.setTexture('prop-checkpoint-on');
+      this.tweens.add({
+        targets: cp.flag,
+        scaleY: { from: 1.25 / FX_RES, to: 1 / FX_RES },
+        duration: 260,
+        ease: 'Back.easeOut',
+      });
+      this.checkpoint = { x: cp.x, y: cp.y };
+      sfx.checkpoint();
+      this.game.events.emit(HUD_EVENTS.callout, 'Checkpoint', COLORS.checkpointOn);
+      telemetry.log('checkpoint', { x: cp.x, t: Math.round(this.timeMs) });
+    }
+  }
+
+  private checkArenas(): void {
+    for (const a of this.arenas) {
+      if (a.started || a.done || this.player.x < a.def.triggerX) continue;
+      a.started = true;
+      for (const x of [a.def.left - 4, a.def.right + 4]) {
+        const wall = this.add.rectangle(
+          x,
+          this.def.height / 2,
+          8,
+          this.def.height * 2,
+          0x000000,
+          0,
+        );
+        this.physics.add.existing(wall, true);
+        this.solids.add(wall);
+        a.walls.push(wall);
+      }
+      this.camRig.setBounds(a.def.left, 0, a.def.right - a.def.left, this.def.height);
+      a.def.spawns.forEach((s) => a.enemies.add(this.spawnRifleman(s.x, s.y)));
+      this.game.events.emit(HUD_EVENTS.callout, 'Ambush · clear the area', COLORS.danger);
+      telemetry.log('arena_start', { x: a.def.triggerX, t: Math.round(this.timeMs) });
+    }
+  }
+
+  private endArena(a: ArenaRuntime): void {
+    a.done = true;
+    this.removeArenaWalls(a);
+    this.camRig.setBounds(0, 0, this.def.width, this.def.height);
+    this.game.events.emit(HUD_EVENTS.callout, 'Area clear', COLORS.checkpointOn);
+    telemetry.log('arena_clear', { t: Math.round(this.timeMs) });
+  }
+
+  private removeArenaWalls(a: ArenaRuntime): void {
+    a.walls.forEach((w) => {
+      this.solids.remove(w, true, true);
+    });
+    a.walls = [];
+  }
+
+  private checkGoal(): void {
+    if (this.status !== 'playing' || this.player.x < this.def.goal.x) return;
+    this.status = 'clear';
+    this.player.arcadeBody.setVelocityX(0);
+    this.player.victory = true;
+    sfx.clear();
+    const rank = computeRank({
+      timeMs: this.timeMs,
       downs: this.squad.downs,
       continues: this.continues,
-      kills: this.kills,
-      totalEnemies: this.totalEnemies,
-    };
-    services.telemetry.log(cleared ? 'clear' : 'quit', { t: this.runTime, rank: cleared ? rankFor(stats) : null, swaps: this.squad.swaps });
-    if (cleared) {
-      const rank = rankFor(stats);
-      const best = services.save.data.best[this.def.id];
-      if (betterRank(best?.rank, rank) || (best?.rank === rank && stats.timeSec < best.timeSec)) {
-        services.save.data.best[this.def.id] = { rank, timeSec: stats.timeSec };
-      }
-      void services.save.save();
-    }
+      parTimeMs: this.def.parTimeMs,
+    });
+    const prev = saves.data.bestByStage[this.def.id];
+    const run = { rank, timeMs: Math.round(this.timeMs), at: new Date().toISOString() };
+    const newBest = isBetterRun(run, prev);
+    if (newBest) saves.data.bestByStage[this.def.id] = run;
+    saves.data.stats.runsCleared++;
+    void saves.save();
+    telemetry.log('stage_clear', {
+      stage: this.def.id,
+      mode: this.mode,
+      timeMs: run.timeMs,
+      rank,
+      downs: this.squad.downs,
+      swaps: this.squad.swaps,
+      continues: this.continues,
+      secrets: this.secrets,
+      fps: this.fps.summary(),
+    });
     const data: ResultsData = {
       stageId: this.def.id,
       stageName: this.def.name,
       mode: this.mode,
-      cleared,
-      stats,
+      timeMs: run.timeMs,
+      downs: this.squad.downs,
       swaps: this.squad.swaps,
-      score: this.score,
+      continues: this.continues,
+      rank,
+      newBest,
+      bestTimeMs: (newBest ? run : prev)?.timeMs ?? run.timeMs,
+      secrets: this.secrets,
+      squad: this.squad.members.map((m) => m.def.id),
     };
-    this.time.delayedCall(cleared ? 1400 : 0, () => {
-      this.scene.stop('Hud');
-      this.scene.start('Results', data);
+    this.time.delayedCall(1800, () => {
+      this.scene.stop(SCENES.hud);
+      this.scene.start(SCENES.results, data);
     });
   }
 
-  pause(): void {
-    if (this.finished || this.failed) return;
-    services.input.releaseAll();
-    services.sfx.suspend();
+  // ---------------------------------------------------------------- feedback, pause, HUD
+
+  private hitStop(ms: number): void {
+    this.hitStopMs = Math.max(this.hitStopMs, ms);
+  }
+
+  private shake(s: { durationMs: number; intensity: number }): void {
+    if (this.settings.screenShake) this.cameras.main.shake(s.durationMs, s.intensity);
+  }
+
+  private onHidden(): void {
+    if (this.scene.isActive() && this.status === 'playing') this.openPause();
+  }
+
+  private openPause(): void {
+    sfx.setRotor(0);
     this.scene.pause();
-    this.scene.launch('Pause', { from: 'Stage', stage: this.def.id, mode: this.mode });
+    this.scene.pause(SCENES.hud);
+    this.scene.launch(SCENES.pause, { mode: this.mode });
+    this.scene.bringToTop(SCENES.pause);
   }
 
-  /* ------------------------------------------------------------------ combat helpers */
-
-  private bulletHitsEnemy(bullet: Bullet, enemy: Enemy): void {
-    if (!bullet.active || enemy.dead || bullet.hits.has(enemy)) return;
-    bullet.hits.add(enemy);
-    if (!this.firstFight) {
-      this.firstFight = true;
-      services.telemetry.log('first_fight', { t: this.runTime });
-    }
-    const killed = enemy.hurt(bullet.damage);
-    this.sparks.explode(5, bullet.x, bullet.y);
-    services.sfx.play('hit');
-    if (killed) this.killEnemy(enemy);
-    if (bullet.pierce > 0) bullet.pierce--;
-    else bullet.kill();
-  }
-
-  private killEnemy(enemy: Enemy): void {
-    this.kills++;
-    this.score += enemy.score;
-    this.explode(enemy.x, enemy.y - 40, true);
-    this.hitStop = Math.max(this.hitStop, TUNING.hit.hitStop);
-    (enemy.body as Phaser.Physics.Arcade.Body).enable = false;
-    enemy.setVisible(false);
-  }
-
-  private explode(x: number, y: number, big: boolean): void {
-    const b = this.booms.find((s) => !s.visible);
-    if (b) {
-      b.setPosition(x, y).setVisible(true).setScale(big ? 1.1 : 0.8).setAngle(Math.random() * 360);
-      b.play('boom');
-    }
-    this.debris.explode(big ? 10 : 6, x, y);
-    this.dust.explode(4, x, y + 20);
-    services.sfx.play('explode');
-    if (big && services.save.data.settings.shake) this.cameras.main.shake(90, TUNING.hit.shake);
-  }
-
-  private ring(x: number, y: number, color: number, scale: number): void {
-    const r = this.add.image(x, y, 'ring').setTint(color).setDepth(DEPTH.fx).setScale(0.2).setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({ targets: r, scale, alpha: 0, duration: 380, ease: 'Cubic.easeOut', onComplete: () => r.destroy() });
-  }
-
-  private splash(x: number, y: number): void {
-    this.dust.explode(8, x, y);
-    this.sparks.explode(6, x, y);
-  }
-
-  private solidUnder(x: number): Rect | undefined {
-    return this.def.solids.find((r) => x >= r.x && x <= r.x + r.w);
-  }
-
-  private inView(x: number, y: number, margin: number): boolean {
-    const cam = this.cameras.main;
-    return x > cam.scrollX - margin && x < cam.scrollX + VIEW_W + margin && y > cam.scrollY - margin && y < cam.scrollY + VIEW_H + margin;
-  }
-
-  private callout(text: string, color: string, sec: number): void {
-    if (this.hud) this.hud.callout = { text, color, until: this.runTime + sec };
-  }
-
-  private updateHud(): void {
-    const h = this.hud;
-    const sq = this.squad;
-    h.members = sq.members.map((m, i) => {
-      const op = OPERATORS[m.id as OperatorId];
-      return {
-        id: op.id,
-        name: op.name,
-        color: op.color,
-        health: m.health,
-        maxHealth: m.maxHealth,
-        armour: m.armour,
-        maxArmour: m.maxArmour,
-        down: m.down,
-        active: i === sq.active,
-      };
-    });
-    h.swapCooldown = sq.cooldown / TUNING.relay.swapCooldown;
-    h.canSwap = sq.canSwap;
-    h.livesLeft = sq.livesLeft;
-    h.timeSec = this.runTime;
-    h.score = this.score;
-    h.weapon = this.player.op.weapon.name;
-    if (h.callout && h.callout.until < this.runTime) h.callout = null;
-  }
-
-  /* ------------------------------------------------------------------ contexts */
-
-  private readonly playerCtx: PlayerContext = {
-    fire: (x: number, y: number, angle: number, shot: ShotOpts) => {
-      const b = this.pBullets.fire(x, y, angle, shot.speed, shot.texture, shot.damage, shot.pierce, TUNING.bullet.lifetime);
-      b?.setScale(shot.scale ?? 1);
-    },
-    muzzleFlash: (x: number, y: number, angle: number) => {
-      const m = this.muzzles.find((i) => i.t <= 0) ?? this.muzzles[0];
-      m.t = 0.05;
-      m.img.setPosition(x, y).setRotation(angle).setVisible(true).setScale(0.8 + Math.random() * 0.4);
-    },
-    sfx: (name: SfxName) => services.sfx.play(name),
-    assist: (angle: number, x: number, y: number) => {
-      if (!services.save.data.settings.aimAssist) return angle;
-      const targets = this.enemies.filter((e) => !e.dead && this.inView(e.x, e.y, 0)).map((e) => ({ x: e.x, y: e.y - 44 }));
-      return assistAim(angle, { x, y }, targets, TUNING.touch.aimAssistCone, TUNING.touch.aimAssistRange);
-    },
-    standingOnPlatform: (body: Phaser.Physics.Arcade.Body) => {
-      const bottom = body.bottom;
-      const cx = body.center.x;
-      return this.def.platforms.some((r) => cx >= r.x && cx <= r.x + r.w && Math.abs(bottom - r.y) < 6);
-    },
-    pound: (x: number, y: number) => {
-      services.sfx.play('pound');
-      this.ring(x, y - 10, OPERATORS.rurik.color, 3.2);
-      this.dust.explode(14, x, y);
-      if (services.save.data.settings.shake) this.cameras.main.shake(200, TUNING.hit.shake * 2);
-      this.hitStop = TUNING.hit.hitStop;
-      for (const e of this.enemies) {
-        if (e.dead) continue;
-        const dist = Phaser.Math.Distance.Between(x, y - 30, e.x, e.y - 40);
-        if (dist < 210) {
-          e.stun = 1.6;
-          if (e.hurt(3)) this.killEnemy(e);
+  private writeHud(): void {
+    const s = this.squad;
+    const next = s.nextStanding();
+    const p = this.player;
+    hud.running = true;
+    hud.mode = this.mode;
+    hud.members = s.members.map((m, i) => ({
+      id: m.def.id,
+      name: m.def.name,
+      role: m.def.role,
+      color: m.def.color,
+      hp: m.hp,
+      maxHp: m.def.maxHp,
+      armour: m.armour,
+      maxArmour: m.def.maxArmour,
+      down: m.down,
+      active: i === s.activeIndex,
+      oxygen: m.oxygenMs / m.def.swim.oxygenMs,
+    }));
+    hud.livesLeft = s.livesLeft;
+    hud.swapReady = s.canSwap();
+    hud.swapCooldownFrac = s.swapCooldownLeft / TUNING.swapCooldownMs;
+    hud.nextName = next >= 0 ? (s.members[next]?.def.name ?? '') : '';
+    hud.timeMs = this.timeMs;
+    hud.status = this.status;
+    hud.showRetry = this.status === 'squadDown' && this.time.now >= this.retryReadyAt;
+    hud.fps = this.settings.showFps || FLAGS.debug ? this.fps.summary() : null;
+    const a = p.arsenal;
+    hud.weapon = a
+      ? {
+          name: a.current.name,
+          short: a.current.short,
+          mag: a.mag,
+          magSize: a.current.magSize,
+          reload: a.reloadProgress,
+          blocked: p.submerged && a.current.underwater === 'none',
+          other: a.ids.length > 1 ? (a.ids[(a.index + 1) % a.ids.length] ?? '') : '',
         }
-      }
-      for (const b of this.eBullets.items) {
-        if (b.active && Phaser.Math.Distance.Between(x, y - 30, b.x, b.y) < 240) b.kill();
-      }
-    },
-    dust: (x: number, y: number) => this.dust.explode(3, x, y),
-  };
-
-  private readonly enemyCtx: EnemyContext = {
-    player: { x: 0, y: 0, alive: true },
-    inView: (x, y, m) => this.inView(x, y, m),
-    groundAhead: (x, y, dir) => {
-      const probeX = x + dir * 26;
-      return (
-        this.def.solids.some((r) => probeX >= r.x && probeX <= r.x + r.w && Math.abs(r.y - y) < 8) ||
-        this.def.platforms.some((r) => probeX >= r.x && probeX <= r.x + r.w && Math.abs(r.y - y) < 8)
-      );
-    },
-    fireEnemyBullet: (x, y, angle) => {
-      this.eBullets.fire(x, y, angle, TUNING.bullet.enemySpeed, 'bullet_enemy', 1, 0, 3);
-    },
-    sfx: (name) => services.sfx.play(name),
-    flashing: true,
-  };
-
-  /* ------------------------------------------------------------------ test hooks */
-
-  private exposeForTests(): void {
-    const w = window as unknown as { __hotRelay?: Record<string, unknown> };
-    w.__hotRelay = w.__hotRelay ?? {};
-    w.__hotRelay.stage = this;
-    w.__hotRelay.probe = () => {
-      const p = this.player;
-      const ahead = (dx: number) => this.def.solids.find((r) => p.x + dx >= r.x && p.x + dx <= r.x + r.w);
-      const curr = this.solidUnder(p.x);
-      const next = ahead(p.facing * 90);
-      return {
-        x: p.x,
-        y: p.y,
-        grounded: p.grounded,
-        alive: p.alive,
-        gapAhead: !next,
-        wallAhead: !!next && !!curr && next.y < curr.y - 10,
-        arena: this.arenas.some((a) => a.state === 'active'),
-        enemiesInView: this.enemies.filter((e) => !e.dead && this.inView(e.x, e.y, 0)).length,
-        finished: this.finished,
-        failed: this.failed,
-        runTime: this.runTime,
-        kills: this.kills,
-        downs: this.squad.downs,
-        swaps: this.squad.swaps,
-        active: this.squad.current.id,
-        enemyBullets: this.eBullets.activeCount,
-        enemies: this.enemies.length,
-        ticks: this.tickCount,
-        last: this.lastFrame,
+      : null;
+    hud.oxygen = s.oxygenFrac;
+    hud.showOxygen = p.submerged || s.oxygenFrac < 0.999;
+    hud.secrets = this.secrets;
+    const c = this.cinematic;
+    const ins = this.def.insertion;
+    if (c && ins) {
+      const f = c.frame;
+      hud.cinematic = {
+        active: !f.controlReturned || f.letterbox > 0,
+        letterbox: f.letterbox,
+        title: ins.title,
+        subtitle: ins.subtitle,
+        titleAlpha: f.title,
+        skippable: this.skippable && !f.controlReturned,
       };
+    } else {
+      hud.cinematic.active = false;
+    }
+  }
+
+  /** Read-only state for automated smoke tests. */
+  private exposeState(): void {
+    if (!window.__hotRelay) return;
+    const p = this.player;
+    const a = p.arsenal;
+    window.__hotRelay.state = {
+      scene: 'stage',
+      status: this.status,
+      x: Math.round(p.x),
+      y: Math.round(p.y),
+      feetY: Math.round(p.feetY),
+      active: this.squad.active.def.id,
+      squad: this.squad.members.map((m) => m.def.id),
+      swaps: this.squad.swaps,
+      downs: this.squad.downs,
+      enemiesAlive: this.enemies.filter((e) => !e.dead).length,
+      arenaLive: this.arenas.reduce((n, a) => n + (a.started && !a.done ? a.enemies.size : 0), 0),
+      bullets: this.pBullets.countActive() + this.eBullets.countActive(),
+      timeMs: Math.round(this.timeMs),
+      ground: p.groundKind,
+      grounded: p.grounded,
+      lastSafe: { x: Math.round(p.lastSafe.x), y: Math.round(p.lastSafe.y) },
+      anim: p.animState,
+      inWater: p.inWater,
+      submerged: p.submerged,
+      oxygen: Math.round(this.squad.oxygenFrac * 100) / 100,
+      hp: this.squad.active.hp,
+      weapon: a?.current.id ?? null,
+      mag: a?.mag ?? 0,
+      reloading: a?.reloading ?? false,
+      insertion: this.cinematic ? this.cinematic.frame.phase : 'none',
+      control: !this.cinematic || this.cinematic.controlReturned,
+      secrets: this.secrets,
+      fps: this.fps.summary(),
     };
   }
 
-  get enemyBulletCount(): number {
-    return this.eBullets.activeCount;
+  /** Debug hooks for smoke tests (?debug=1 only). */
+  private exposeDebug(): void {
+    if (!window.__hotRelay) return;
+    window.__hotRelay.debug = {
+      teleport: (x: number, feetY: number) => {
+        this.player.respawnAt(x, feetY);
+        this.camRig.snap(this.cameraSubject());
+      },
+      setInvulnerable: (ms: number) => {
+        this.player.invulnMs = ms;
+      },
+      clearEnemies: () => this.enemies.forEach((e) => e.despawn()),
+      scene: this,
+    };
+  }
+
+  private toggleDebugDraw(): void {
+    const world = this.physics.world;
+    if (!world.debugGraphic) world.createDebugGraphic();
+    world.drawDebug = !world.drawDebug;
+    world.debugGraphic.setVisible(world.drawDebug);
   }
 }

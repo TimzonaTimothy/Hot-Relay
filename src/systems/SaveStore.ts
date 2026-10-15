@@ -1,100 +1,159 @@
-import { get, set } from 'idb-keyval';
+/**
+ * Local save (SAVE-01, SAVE-02, start of SAVE-03).
+ * Storage is injected so the logic is testable; in the browser it is IndexedDB via idb-keyval,
+ * falling back to memory when IndexedDB is unavailable (private mode, some embedded webviews).
+ */
 import type { Rank } from './rank';
 
 export const SAVE_VERSION = 1;
-const KEY = 'hot-relay-save';
+const SAVE_KEY = 'hot-relay/save';
 
 export type TouchMode = 'auto' | 'on' | 'off';
 
 export interface Settings {
-  shake: boolean;
+  screenShake: boolean;
   flashing: boolean;
   aimAssist: boolean;
   autoFire: boolean;
-  touchMode: TouchMode;
-  sound: boolean;
+  volume: number;
   showFps: boolean;
+  touchControls: TouchMode;
 }
 
 export interface BestRun {
   rank: Rank;
-  timeSec: number;
+  timeMs: number;
+  at: string;
 }
 
 export interface SaveData {
   version: number;
   settings: Settings;
-  best: Record<string, BestRun>;
-  plays: number;
+  bestByStage: Record<string, BestRun>;
+  stats: { runsStarted: number; runsCleared: number };
+  /** Squad picked last time, in relay order (operator ids). */
+  lastSquad: string[];
+  /** Stages whose opening insertion has been watched once (skippable afterwards). */
+  seenInsertion: Record<string, boolean>;
 }
+
+export const DEFAULT_SETTINGS: Settings = {
+  screenShake: true,
+  flashing: true,
+  aimAssist: true,
+  autoFire: false,
+  volume: 0.6,
+  showFps: false,
+  touchControls: 'auto',
+};
 
 export function defaultSave(): SaveData {
   return {
     version: SAVE_VERSION,
-    settings: {
-      shake: true,
-      flashing: true,
-      aimAssist: true,
-      autoFire: false,
-      touchMode: 'auto',
-      sound: true,
-      showFps: false,
-    },
-    best: {},
-    plays: 0,
+    settings: { ...DEFAULT_SETTINGS },
+    bestByStage: {},
+    stats: { runsStarted: 0, runsCleared: 0 },
+    lastSquad: [],
+    seenInsertion: {},
   };
 }
 
-const RANKS = new Set(['S', 'A', 'B', 'C']);
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** Field-by-field repair: keep what is valid, default the rest. Never throws. */
-export function repairSave(raw: unknown): SaveData {
-  const d = defaultSave();
-  if (!raw || typeof raw !== 'object') return d;
-  const r = raw as Record<string, unknown>;
-  const s = (r.settings ?? {}) as Record<string, unknown>;
-  for (const k of Object.keys(d.settings) as (keyof Settings)[]) {
-    const def = d.settings[k];
-    const v = s[k];
-    if (k === 'touchMode') {
-      if (v === 'auto' || v === 'on' || v === 'off') d.settings.touchMode = v;
-    } else if (typeof v === typeof def) {
-      (d.settings[k] as boolean) = v as boolean;
-    }
+/**
+ * Bring any stored value up to the current schema. Unknown or broken data never crashes
+ * the game; it falls back to defaults field by field.
+ */
+export function migrate(raw: unknown): SaveData {
+  const base = defaultSave();
+  if (!isObj(raw)) return base;
+
+  const s = isObj(raw.settings) ? raw.settings : {};
+  const settings: Settings = { ...base.settings };
+  for (const key of Object.keys(base.settings) as (keyof Settings)[]) {
+    const v = s[key];
+    const def = base.settings[key];
+    if (typeof v === typeof def) (settings as unknown as Record<string, unknown>)[key] = v;
   }
-  if (r.best && typeof r.best === 'object') {
-    for (const [id, b] of Object.entries(r.best as Record<string, unknown>)) {
-      const run = b as Partial<BestRun> | null;
-      if (run && RANKS.has(run.rank as string) && typeof run.timeSec === 'number' && run.timeSec > 0) {
-        d.best[id] = { rank: run.rank as Rank, timeSec: run.timeSec };
+  settings.volume = Math.min(1, Math.max(0, settings.volume));
+  if (!['auto', 'on', 'off'].includes(settings.touchControls)) settings.touchControls = 'auto';
+
+  const bestByStage: Record<string, BestRun> = {};
+  if (isObj(raw.bestByStage)) {
+    for (const [id, b] of Object.entries(raw.bestByStage)) {
+      if (
+        isObj(b) &&
+        typeof b.timeMs === 'number' &&
+        ['S', 'A', 'B', 'C'].includes(String(b.rank))
+      ) {
+        bestByStage[id] = { rank: b.rank as Rank, timeMs: b.timeMs, at: String(b.at ?? '') };
       }
     }
   }
-  if (typeof r.plays === 'number' && r.plays >= 0) d.plays = Math.floor(r.plays);
-  return d;
+
+  const st = isObj(raw.stats) ? raw.stats : {};
+  return {
+    version: SAVE_VERSION,
+    settings,
+    bestByStage,
+    stats: {
+      runsStarted: typeof st.runsStarted === 'number' ? st.runsStarted : 0,
+      runsCleared: typeof st.runsCleared === 'number' ? st.runsCleared : 0,
+    },
+    lastSquad: Array.isArray(raw.lastSquad)
+      ? raw.lastSquad.filter((x): x is string => typeof x === 'string').slice(0, 3)
+      : [],
+    seenInsertion: isObj(raw.seenInsertion)
+      ? (Object.fromEntries(
+          Object.entries(raw.seenInsertion).filter(([, v]) => v === true),
+        ) as Record<string, boolean>)
+      : {},
+  };
 }
 
-/** IndexedDB save with an in-memory fallback (private mode, blocked storage). */
+export interface KeyValueStore {
+  get(key: string): Promise<unknown>;
+  set(key: string, value: unknown): Promise<void>;
+}
+
+export class MemoryStore implements KeyValueStore {
+  private map = new Map<string, unknown>();
+  async get(key: string): Promise<unknown> {
+    return structuredClone(this.map.get(key));
+  }
+  async set(key: string, value: unknown): Promise<void> {
+    this.map.set(key, structuredClone(value));
+  }
+}
+
 export class SaveStore {
   data: SaveData = defaultSave();
-  persistent = true;
+  private writeChain: Promise<void> = Promise.resolve();
+
+  constructor(private store: KeyValueStore) {}
 
   async load(): Promise<SaveData> {
     try {
-      this.data = repairSave(await get(KEY));
-    } catch {
-      this.persistent = false;
+      this.data = migrate(await this.store.get(SAVE_KEY));
+    } catch (err) {
+      console.warn('Save load failed; using defaults', err);
       this.data = defaultSave();
     }
     return this.data;
   }
 
-  async save(): Promise<void> {
-    if (!this.persistent) return;
-    try {
-      await set(KEY, this.data);
-    } catch {
-      this.persistent = false;
-    }
+  /** Writes are queued so rapid changes never interleave. */
+  save(): Promise<void> {
+    const snapshot = structuredClone(this.data);
+    this.writeChain = this.writeChain
+      .then(() => this.store.set(SAVE_KEY, snapshot))
+      .catch((err) => console.warn('Save write failed', err));
+    return this.writeChain;
+  }
+
+  updateSettings(patch: Partial<Settings>): Promise<void> {
+    this.data.settings = { ...this.data.settings, ...patch };
+    return this.save();
   }
 }

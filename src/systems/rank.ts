@@ -1,32 +1,39 @@
+/** Stage rank (UI-05 basic). Pure so it can be unit tested and tuned from playtest data. */
+
 export type Rank = 'S' | 'A' | 'B' | 'C';
 
 export interface RunStats {
-  timeSec: number;
-  parSec: number;
+  timeMs: number;
+  /** Operators that went down during the run (or lives lost in solo mode). */
   downs: number;
+  /** Times the whole squad went down and the player retried from a checkpoint. */
   continues: number;
-  kills: number;
-  totalEnemies: number;
+  parTimeMs: number;
 }
 
-/** 0–100 score: time vs par, survival and clear rate. */
-export function rankScore(s: RunStats): number {
-  const timeRatio = s.parSec / Math.max(1, s.timeSec);
-  const time = Math.min(40, 40 * timeRatio);
-  const survival = Math.max(0, 35 - s.downs * 12 - s.continues * 25);
-  const clear = s.totalEnemies > 0 ? 25 * Math.min(1, s.kills / s.totalEnemies) : 25;
-  return Math.round(time + survival + clear);
+export function computeRank({ timeMs, downs, continues, parTimeMs }: RunStats): Rank {
+  if (continues > 0) return 'C';
+  if (downs === 0 && timeMs <= parTimeMs) return 'S';
+  if (downs <= 1 && timeMs <= parTimeMs * 1.3) return 'A';
+  return 'B';
 }
 
-export function rankFor(s: RunStats): Rank {
-  const score = rankScore(s);
-  if (s.continues === 0 && score >= 88) return 'S';
-  if (score >= 72) return 'A';
-  if (score >= 52) return 'B';
-  return 'C';
+/** Lower is better; used to decide whether a run beats the saved best. */
+export const RANK_ORDER: Record<Rank, number> = { S: 0, A: 1, B: 2, C: 3 };
+
+export function isBetterRun(
+  a: { rank: Rank; timeMs: number },
+  b: { rank: Rank; timeMs: number } | undefined,
+): boolean {
+  if (!b) return true;
+  if (RANK_ORDER[a.rank] !== RANK_ORDER[b.rank]) return RANK_ORDER[a.rank] < RANK_ORDER[b.rank];
+  return a.timeMs < b.timeMs;
 }
 
-const ORDER: Rank[] = ['C', 'B', 'A', 'S'];
-export function betterRank(a: Rank | undefined, b: Rank): boolean {
-  return a === undefined || ORDER.indexOf(b) > ORDER.indexOf(a);
+export function formatTime(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 10));
+  const cs = total % 100;
+  const s = Math.floor(total / 100) % 60;
+  const m = Math.floor(total / 6000);
+  return `${m}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
 }

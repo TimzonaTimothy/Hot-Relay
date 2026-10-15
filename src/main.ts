@@ -1,55 +1,64 @@
 import Phaser from 'phaser';
-import { VIEW_H, VIEW_W } from './config/constants';
+import { CANVAS_H, CANVAS_W, COLORS } from './config/constants';
 import { BootScene } from './scenes/BootScene';
 import { PreloadScene } from './scenes/PreloadScene';
 import { MenuScene } from './scenes/MenuScene';
 import { StageScene } from './scenes/StageScene';
-import { StressScene } from './scenes/StressScene';
 import { HudScene } from './scenes/HudScene';
 import { PauseScene } from './scenes/PauseScene';
 import { ResultsScene } from './scenes/ResultsScene';
-import { services } from './systems/services';
+import { StressScene } from './scenes/StressScene';
+import { SquadScene } from './scenes/SquadScene';
 import { registerServiceWorker } from './systems/pwa';
+import { input } from './systems/InputManager';
+import './ui/fonts';
+
+// Start on-screen controls straight away on phones and tablets.
+if ((navigator.maxTouchPoints ?? 0) > 0 && window.matchMedia?.('(pointer: coarse)').matches) {
+  input.lastSource = 'touch';
+}
 
 const game = new Phaser.Game({
-  type: Phaser.AUTO,
+  type: Phaser.WEBGL,
   parent: 'game',
-  width: VIEW_W,
-  height: VIEW_H,
-  backgroundColor: '#0d1712',
-  pixelArt: false,
-  antialias: true,
+  width: CANVAS_W,
+  height: CANVAS_H,
+  backgroundColor: COLORS.bg,
+  pixelArt: true,
   roundPixels: true,
-  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-  input: { activePointers: 4, gamepad: false },
-  fps: { target: 60, smoothStep: false },
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  input: {
+    activePointers: 4,
+    gamepad: false, // read directly through the browser Gamepad API in InputManager
+  },
   physics: {
     default: 'arcade',
     arcade: {
       gravity: { x: 0, y: 0 },
-      // Stepped manually from StageScene.tick so gameplay runs at a fixed 60 Hz.
+      fps: 60,
+      fixedStep: true,
+      // Stage and Stress advance physics inside their own fixed-step loop (CORE-02)
       customUpdate: true,
-      debug: services.flags.debug,
+      debug: false,
     },
   },
-  scene: [BootScene, PreloadScene, MenuScene, StageScene, StressScene, HudScene, PauseScene, ResultsScene],
+  fps: { target: 60, smoothStep: true },
+  scene: [
+    BootScene,
+    PreloadScene,
+    MenuScene,
+    SquadScene,
+    StageScene,
+    HudScene,
+    PauseScene,
+    ResultsScene,
+    StressScene,
+  ],
 });
 
-window.addEventListener('touchstart', () => (services.touchSeen = true), { once: true, passive: true });
+void registerServiceWorker();
 
-// F2 toggles physics debug bodies when ?debug=1.
-if (services.flags.debug) {
-  window.addEventListener('keydown', (e) => {
-    if (e.code !== 'F2') return;
-    for (const s of game.scene.getScenes(true)) {
-      const w = (s as Phaser.Scene).physics?.world;
-      if (!w) continue;
-      if (!w.debugGraphic) w.createDebugGraphic();
-      w.drawDebug = !w.drawDebug;
-      w.debugGraphic.clear();
-    }
-  });
-}
-
-(window as unknown as { __hotRelay: Record<string, unknown> }).__hotRelay = { game, services, telemetry: services.telemetry };
-registerServiceWorker();
+if (import.meta.env.DEV) (window as unknown as { game: Phaser.Game }).game = game;

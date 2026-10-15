@@ -1,67 +1,145 @@
+/**
+ * Enemy base class with a small state machine (ENEMY-01).
+ * Subclasses implement `think`; the base handles health, hit flash, stun and death.
+ * Enemies that use a cut-out Rig draw through it; the physics sprite itself stays invisible.
+ */
 import Phaser from 'phaser';
 import { DEPTH } from '../config/constants';
+import type { WaterVolume } from '../systems/water';
+import type { Rect } from '../systems/geometry';
+import type { Effects } from '../stage/Effects';
+import type { Rig } from './Rig';
 
-/** What an enemy may ask of the stage. Keeps enemies decoupled from StageScene. */
 export interface EnemyContext {
-  player: { x: number; y: number; alive: boolean };
-  inView(x: number, y: number, margin: number): boolean;
-  groundAhead(x: number, y: number, dir: number): boolean;
-  fireEnemyBullet(x: number, y: number, angle: number): void;
-  sfx(name: 'enemyShot'): void;
+  /** Player centre in world space. */
+  target: { x: number; y: number };
+  /** Is the player in the water (and fully under)? Water enemies only hunt swimmers. */
+  targetInWater: boolean;
+  targetSubmerged: boolean;
+  /** Current camera view in world space; enemies only act when on screen. */
+  view: Phaser.Geom.Rectangle;
   flashing: boolean;
+  water: readonly WaterVolume[];
+  fireEnemyBullet(x: number, y: number, dirX: number, dirY: number, speed: number): void;
+  /** Blast that hurts the player and other enemies in range (mines). */
+  explode(x: number, y: number, radius: number, damage: number, source: Enemy): void;
+  /** Called the first time any enemy starts attacking (telemetry: time to first fight). */
+  onEngage(enemy: Enemy): void;
+  /** Shared graphics for telegraph lines, cleared each frame by the scene. */
+  telegraph: Phaser.GameObjects.Graphics;
 }
 
-export type EnemyMode = 'idle' | 'patrol' | 'aim' | 'burst' | 'cooldown';
+/** What enemies need for per-frame visuals. */
+export interface EnemyVisualWorld {
+  platforms: readonly Rect[];
+  water: readonly WaterVolume[];
+  fx: Effects;
+}
 
-/** Base enemy: health, hit flash, stun and a simple state machine with a timer. */
 export abstract class Enemy extends Phaser.Physics.Arcade.Sprite {
-  health: number;
-  readonly maxHealth: number;
-  facing: 1 | -1 = -1;
-  mode: EnemyMode = 'idle';
-  modeTime = 0;
-  stun = 0;
-  flash = 0;
+  hp: number;
+  readonly maxHp: number;
   dead = false;
-  abstract readonly score: number;
+  stunnedMs = 0;
+  private flashMs = 0;
+  engaged = false;
+  /** Visual rig, if this enemy is drawn as a cut-out character. */
+  protected rig: Rig | null = null;
+  /** Contact damage dealt by touching this enemy. */
+  contactDamage = 1;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, texture: string, health: number) {
+  constructor(scene: Phaser.Scene, x: number, y: number, texture: string, maxHp: number) {
     super(scene, x, y, texture);
-    this.health = health;
-    this.maxHealth = health;
+    this.maxHp = maxHp;
+    this.hp = maxHp;
     scene.add.existing(this);
     scene.physics.add.existing(this);
     this.setDepth(DEPTH.enemies);
   }
 
-  setMode(m: EnemyMode): void {
-    this.mode = m;
-    this.modeTime = 0;
+  get arcadeBody(): Phaser.Physics.Arcade.Body {
+    return this.body as Phaser.Physics.Arcade.Body;
   }
 
-  /** Returns true when this hit killed the enemy. */
-  hurt(damage: number): boolean {
+  /** Feet position, used for ground-pound range checks. */
+  get feetY(): number {
+    return this.arcadeBody.bottom;
+  }
+
+  /** @returns true if this hit killed the enemy. */
+  hit(damage: number): boolean {
     if (this.dead) return false;
-    this.health -= damage;
-    this.flash = 0.06;
-    if (this.health <= 0) {
-      this.dead = true;
+    this.hp -= damage;
+    this.flashMs = 70;
+    if (this.rig) this.rig.flash(70);
+    else this.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    if (this.hp <= 0) {
+      this.die();
       return true;
     }
     return false;
   }
 
-  /** Gameplay step at the fixed rate. */
-  abstract tick(dt: number, ctx: EnemyContext): void;
-
-  /** After physics: position attached sprites, animation, flash. */
-  abstract sync(ctx: EnemyContext): void;
-
-  protected applyFlash(): void {
-    if (this.flash > 0) this.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    else if (this.stun > 0) this.setTint(0x9ad0ff).setTintMode(Phaser.TintModes.MULTIPLY);
-    else this.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
+  stun(ms: number): void {
+    if (this.dead) return;
+    this.stunnedMs = Math.max(this.stunnedMs, ms);
+    this.onStunned();
   }
 
-  abstract destroyAll(): void;
+  protected onStunned(): void {}
+
+  /** Remove without a death (no score, no effects, no events), e.g. resetting an arena. */
+  despawn(): void {
+    this.dead = true;
+    this.disableBody(true, true);
+    this.rig?.setVisible(false);
+  }
+
+  protected die(): void {
+    this.dead = true;
+    this.disableBody(true, true);
+  }
+
+  isOnScreen(view: Phaser.Geom.Rectangle, margin = 8): boolean {
+    return (
+      this.x > view.x - margin &&
+      this.x < view.right + margin &&
+      this.y > view.y - margin &&
+      this.y < view.bottom + margin
+    );
+  }
+
+  step(dtMs: number, ctx: EnemyContext): void {
+    if (this.dead) return;
+    if (this.flashMs > 0) {
+      this.flashMs -= dtMs;
+      if (this.flashMs <= 0) this.restoreTint();
+    }
+    if (this.stunnedMs > 0) {
+      this.stunnedMs -= dtMs;
+      if (this.stunnedMs <= 0) this.restoreTint();
+      return;
+    }
+    this.think(dtMs, ctx);
+  }
+
+  protected restoreTint(): void {
+    if (this.rig) {
+      this.rig.setTint(this.stunnedMs > 0 ? 0x8899ff : null);
+      return;
+    }
+    this.clearTint();
+    this.setTintMode(Phaser.TintModes.MULTIPLY);
+    if (this.stunnedMs > 0) this.setTint(0x8899ff);
+  }
+
+  /** Per-frame visuals (rig pose, death fall). Default: nothing. */
+  syncVisual(_frameMs: number, _world: EnemyVisualWorld): void {}
+
+  protected abstract think(dtMs: number, ctx: EnemyContext): void;
+
+  override destroy(fromScene?: boolean): void {
+    this.rig?.destroy();
+    super.destroy(fromScene);
+  }
 }

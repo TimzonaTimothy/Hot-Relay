@@ -1,48 +1,37 @@
-export interface JumpParams {
-  coyoteTime: number;
-  bufferTime: number;
-}
-
-export interface JumpResult {
-  /** Start a jump this tick. */
-  jump: boolean;
-  /** Jump was released while rising: cut the upward velocity. */
-  cut: boolean;
-}
-
-/** Coyote time, jump buffering and variable jump height, independent of physics. */
+/**
+ * Coyote time + jump buffering (MOVE-03).
+ * - Coyote time: you can still jump for a moment after running off a ledge.
+ * - Jump buffer: pressing jump just before landing still jumps on landing.
+ * Both make jumps feel fair; neither changes jump height.
+ */
 export class JumpController {
-  private coyote = 0;
-  private buffer = 0;
-  private rising = false;
+  private coyoteLeft = 0;
+  private bufferLeft = 0;
 
-  constructor(private readonly p: JumpParams) {}
+  constructor(
+    private readonly coyoteMs: number,
+    private readonly bufferMs: number,
+  ) {}
 
-  tick(dt: number, grounded: boolean, pressed: boolean, held: boolean, vy: number): JumpResult {
-    this.coyote = grounded ? this.p.coyoteTime : Math.max(0, this.coyote - dt);
-    this.buffer = pressed ? this.p.bufferTime : Math.max(0, this.buffer - dt);
-    if (grounded && vy >= 0) this.rising = false;
+  /**
+   * Call once per fixed step.
+   * @returns true when a jump should start this step.
+   */
+  step(dtMs: number, grounded: boolean, jumpPressed: boolean): boolean {
+    this.coyoteLeft = grounded ? this.coyoteMs : Math.max(0, this.coyoteLeft - dtMs);
+    this.bufferLeft = jumpPressed ? this.bufferMs : Math.max(0, this.bufferLeft - dtMs);
 
-    let jump = false;
-    if (this.buffer > 0 && this.coyote > 0) {
-      jump = true;
-      this.buffer = 0;
-      this.coyote = 0;
-      this.rising = true;
+    if (this.bufferLeft > 0 && this.coyoteLeft > 0) {
+      this.bufferLeft = 0;
+      this.coyoteLeft = 0;
+      return true;
     }
-
-    let cut = false;
-    if (!jump && this.rising && !held && vy < 0) {
-      cut = true;
-      this.rising = false;
-    }
-    if (vy >= 0 && !grounded) this.rising = false;
-    return { jump, cut };
+    return false;
   }
 
-  reset(): void {
-    this.coyote = 0;
-    this.buffer = 0;
-    this.rising = false;
+  /** Forget any pending buffered jump (e.g. after a drop-through or respawn). */
+  clear(): void {
+    this.coyoteLeft = 0;
+    this.bufferLeft = 0;
   }
 }

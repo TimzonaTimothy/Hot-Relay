@@ -1,56 +1,53 @@
+/**
+ * On-screen touch controls (INPUT-03).
+ * Left side: a floating stick that appears where the thumb lands (8-way).
+ * Right side: Fire, Jump, Swap and Weapon buttons. Top right: pause.
+ * The stick is analogue horizontally: a small push walks, a full push runs.
+ * Multi-touch: each pointer is tracked separately, so you can run, jump and fire at once.
+ */
 import Phaser from 'phaser';
-import { FONT_DISPLAY, VIEW_H, VIEW_W } from '../config/constants';
-import { snap8 } from '../systems/aim';
-import { services } from '../systems/services';
+import { CANVAS_H, CANVAS_W, CSS, FONT } from '../config/constants';
+import { input, type Action } from '../systems/InputManager';
+import { sfx } from '../systems/Sfx';
 
-interface Button {
-  name: 'fire' | 'jump' | 'swap' | 'pause';
+interface TouchButton {
+  action: Action;
   x: number;
   y: number;
   r: number;
   label: string;
-  gfx: Phaser.GameObjects.Graphics;
-  pointer: number | null;
+  circle: Phaser.GameObjects.Arc;
+  text: Phaser.GameObjects.Text;
+  pointerId: number | null;
 }
 
-const STICK_R = 62;
+const STICK_RADIUS = 56;
+const STICK_DEADZONE = 14;
 
-/**
- * On-screen controls: a floating stick on the left half, fire / jump / swap on the right.
- * Writes into `services.input.touch`, so gameplay never knows touch exists.
- */
 export class TouchControls {
-  private readonly buttons: Button[];
-  private readonly stickBase: Phaser.GameObjects.Graphics;
-  private readonly stickKnob: Phaser.GameObjects.Graphics;
+  private container: Phaser.GameObjects.Container;
+  private stickBase: Phaser.GameObjects.Arc;
+  private stickKnob: Phaser.GameObjects.Arc;
   private stickPointer: number | null = null;
-  private stickOrigin = new Phaser.Math.Vector2(150, VIEW_H - 130);
-  private readonly root: Phaser.GameObjects.Container;
-  visible = true;
+  private stickOrigin = { x: 0, y: 0 };
+  private buttons: TouchButton[] = [];
+  visible = false;
 
   constructor(private readonly scene: Phaser.Scene) {
-    scene.input.addPointer(3);
-    this.root = scene.add.container(0, 0).setDepth(50);
-    this.stickBase = scene.add.graphics();
-    this.stickKnob = scene.add.graphics();
-    this.root.add([this.stickBase, this.stickKnob]);
-    const def: Omit<Button, 'gfx' | 'pointer'>[] = [
-      { name: 'fire', x: VIEW_W - 100, y: VIEW_H - 110, r: 56, label: 'FIRE' },
-      { name: 'jump', x: VIEW_W - 225, y: VIEW_H - 70, r: 46, label: 'JUMP' },
-      { name: 'swap', x: VIEW_W - 92, y: VIEW_H - 250, r: 38, label: 'SWAP' },
-      { name: 'pause', x: VIEW_W / 2, y: 34, r: 24, label: 'II' },
-    ];
-    this.buttons = def.map((d) => {
-      const gfx = scene.add.graphics();
-      const t = scene.add
-        .text(d.x, d.y, d.label, { fontFamily: FONT_DISPLAY, fontSize: d.r > 30 ? '18px' : '16px', color: '#ffffff' })
-        .setOrigin(0.5)
-        .setAlpha(0.9);
-      this.root.add([gfx, t]);
-      return { ...d, gfx, pointer: null };
-    });
-    this.drawStick(0, 0);
-    this.drawButtons();
+    this.container = scene.add.container(0, 0).setDepth(100);
+    this.stickBase = scene.add
+      .circle(150, CANVAS_H - 140, STICK_RADIUS, 0xffffff, 0.08)
+      .setStrokeStyle(2, 0xffffff, 0.25);
+    this.stickKnob = scene.add.circle(150, CANVAS_H - 140, 24, 0xffffff, 0.3);
+    this.container.add([this.stickBase, this.stickKnob]);
+
+    const right = CANVAS_W - 90;
+    const bottom = CANVAS_H - 90;
+    this.addButton('jump', right, bottom, 50, 'JUMP');
+    this.addButton('fire', right - 120, bottom + 10, 50, 'FIRE');
+    this.addButton('swap', right - 30, bottom - 125, 38, 'SWAP');
+    this.addButton('weapon', right - 150, bottom - 105, 32, 'WPN');
+    this.addButton('pause', CANVAS_W - 40, 40, 24, 'II');
 
     scene.input.on('pointerdown', this.onDown, this);
     scene.input.on('pointermove', this.onMove, this);
@@ -59,118 +56,117 @@ export class TouchControls {
     this.setVisible(false);
   }
 
+  private addButton(action: Action, x: number, y: number, r: number, label: string): void {
+    const circle = this.scene.add.circle(x, y, r, 0xffffff, 0.1).setStrokeStyle(2, 0xffffff, 0.3);
+    const text = this.scene.add
+      .text(x, y, label, {
+        fontFamily: FONT,
+        fontSize: r > 40 ? '18px' : '14px',
+        color: CSS.ui,
+        fontStyle: '700',
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.8);
+    this.container.add([circle, text]);
+    this.buttons.push({ action, x, y, r, label, circle, text, pointerId: null });
+  }
+
   setVisible(v: boolean): void {
-    if (v === this.visible) return;
     this.visible = v;
-    this.root.setVisible(v);
-    if (!v) this.release();
+    this.container.setVisible(v);
+    if (!v) this.releaseAll();
   }
 
-  private release(): void {
-    const t = services.input.touch;
-    t.left = t.right = t.up = t.down = t.fire = t.jump = false;
-    services.input.stickX = services.input.stickY = 0;
-    this.stickPointer = null;
-    this.buttons.forEach((b) => (b.pointer = null));
-    this.drawStick(0, 0);
-    this.drawButtons();
+  /** Swap button greys out while the swap is cooling down or nobody is left to tag in. */
+  setSwapReady(ready: boolean, show: boolean): void {
+    const b = this.buttons.find((x) => x.action === 'swap');
+    if (!b) return;
+    b.circle.setVisible(show);
+    b.text.setVisible(show);
+    b.circle.setFillStyle(0xffffff, ready ? 0.16 : 0.04);
+    b.text.setAlpha(ready ? 0.9 : 0.35);
   }
 
-  private hit(p: Phaser.Input.Pointer): Button | undefined {
-    return this.buttons.find((b) => Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) <= b.r + 14);
+  private hitButton(p: Phaser.Input.Pointer): TouchButton | undefined {
+    return this.buttons.find(
+      (b) => b.circle.visible && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) <= b.r + 14,
+    );
   }
 
   private onDown(p: Phaser.Input.Pointer): void {
-    if (p.wasTouch) services.touchSeen = true;
-    if (!this.visible) return;
-    services.sfx.unlock();
-    const t = services.input.touch;
-    services.input.last = 'touch';
-    const b = this.hit(p);
+    if (!this.visible || !p.wasTouch) return;
+    sfx.unlock();
+    const b = this.hitButton(p);
     if (b) {
-      b.pointer = p.id;
-      if (b.name === 'fire') t.fire = true;
-      if (b.name === 'jump') {
-        t.jump = true;
-        t.jumpPressed++;
-      }
-      if (b.name === 'swap') t.swapPressed++;
-      if (b.name === 'pause') t.pausePressed++;
-      this.drawButtons();
+      b.pointerId = p.id;
+      b.circle.setFillStyle(0xffffff, 0.35);
+      input.setTouch(b.action, true);
       return;
     }
-    if (p.x < VIEW_W * 0.5 && this.stickPointer === null) {
+    if (p.x < CANVAS_W * 0.45 && this.stickPointer === null) {
       this.stickPointer = p.id;
-      this.stickOrigin.set(p.x, p.y);
-      this.updateStick(p);
+      this.stickOrigin = { x: p.x, y: p.y };
+      this.stickBase.setPosition(p.x, p.y);
+      this.stickKnob.setPosition(p.x, p.y);
     }
   }
 
   private onMove(p: Phaser.Input.Pointer): void {
-    if (this.visible && p.id === this.stickPointer) this.updateStick(p);
+    if (!this.visible) return;
+    if (p.id === this.stickPointer) {
+      const dx = p.x - this.stickOrigin.x;
+      const dy = p.y - this.stickOrigin.y;
+      const dist = Math.hypot(dx, dy);
+      const k = dist > STICK_RADIUS ? STICK_RADIUS / dist : 1;
+      this.stickKnob.setPosition(this.stickOrigin.x + dx * k, this.stickOrigin.y + dy * k);
+      if (dist < STICK_DEADZONE) {
+        input.setTouchDirection({ left: false, right: false, up: false, down: false });
+        input.setTouchAxis(0);
+        return;
+      }
+      input.setTouchAxis((dx * k) / STICK_RADIUS);
+      // 8 sectors of 45° each; diagonals get both directions
+      const angle = Math.atan2(dy, dx);
+      const sector = ((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8;
+      input.setTouchDirection({
+        right: sector === 0 || sector === 1 || sector === 7,
+        down: sector === 1 || sector === 2 || sector === 3,
+        left: sector === 3 || sector === 4 || sector === 5,
+        up: sector === 5 || sector === 6 || sector === 7,
+      });
+      return;
+    }
+    // sliding a thumb between Fire and Jump works like real buttons
+    const owned = this.buttons.find((b) => b.pointerId === p.id);
+    const over = this.hitButton(p);
+    if (owned && over && over !== owned && over.action !== 'pause') {
+      this.release(owned);
+      over.pointerId = p.id;
+      over.circle.setFillStyle(0xffffff, 0.35);
+      input.setTouch(over.action, true);
+    }
   }
 
   private onUp(p: Phaser.Input.Pointer): void {
-    if (!this.visible) return;
-    const t = services.input.touch;
     if (p.id === this.stickPointer) {
       this.stickPointer = null;
-      t.left = t.right = t.up = t.down = false;
-      services.input.stickX = services.input.stickY = 0;
-      this.drawStick(0, 0);
+      this.stickKnob.setPosition(this.stickOrigin.x, this.stickOrigin.y);
+      input.setTouchDirection({ left: false, right: false, up: false, down: false });
+      input.setTouchAxis(0);
     }
-    for (const b of this.buttons) {
-      if (b.pointer !== p.id) continue;
-      b.pointer = null;
-      if (b.name === 'fire') t.fire = false;
-      if (b.name === 'jump') t.jump = false;
-    }
-    this.drawButtons();
+    for (const b of this.buttons) if (b.pointerId === p.id) this.release(b);
   }
 
-  private updateStick(p: Phaser.Input.Pointer): void {
-    let dx = p.x - this.stickOrigin.x;
-    let dy = p.y - this.stickOrigin.y;
-    const len = Math.hypot(dx, dy);
-    if (len > STICK_R) {
-      dx = (dx / len) * STICK_R;
-      dy = (dy / len) * STICK_R;
-    }
-    const nx = dx / STICK_R;
-    const ny = dy / STICK_R;
-    services.input.stickX = nx;
-    services.input.stickY = ny;
-    const d = snap8(nx, ny, 0.3);
-    const t = services.input.touch;
-    t.left = d?.x === -1;
-    t.right = d?.x === 1;
-    t.up = d?.y === -1;
-    t.down = d?.y === 1;
-    this.drawStick(dx, dy);
+  private release(b: TouchButton): void {
+    b.pointerId = null;
+    b.circle.setFillStyle(0xffffff, 0.1);
+    input.setTouch(b.action, false);
   }
 
-  private drawStick(dx: number, dy: number): void {
-    const { x, y } = this.stickOrigin;
-    const active = this.stickPointer !== null;
-    this.stickBase.clear();
-    this.stickBase.fillStyle(0x0d1712, active ? 0.45 : 0.3);
-    this.stickBase.fillCircle(x, y, STICK_R + 8);
-    this.stickBase.lineStyle(3, 0xff9a3c, active ? 0.9 : 0.5);
-    this.stickBase.strokeCircle(x, y, STICK_R + 8);
-    this.stickKnob.clear();
-    this.stickKnob.fillStyle(0xffffff, active ? 0.85 : 0.5);
-    this.stickKnob.fillCircle(x + dx, y + dy, 26);
-  }
-
-  private drawButtons(): void {
-    for (const b of this.buttons) {
-      const down = b.pointer !== null;
-      b.gfx.clear();
-      b.gfx.fillStyle(down ? 0xff8a2e : 0x0d1712, down ? 0.75 : 0.4);
-      b.gfx.fillCircle(b.x, b.y, b.r);
-      b.gfx.lineStyle(3, 0xff9a3c, down ? 1 : 0.7);
-      b.gfx.strokeCircle(b.x, b.y, b.r);
-    }
+  private releaseAll(): void {
+    this.stickPointer = null;
+    this.buttons.forEach((b) => this.release(b));
+    input.clearTouch();
   }
 
   destroy(): void {
@@ -178,6 +174,7 @@ export class TouchControls {
     this.scene.input.off('pointermove', this.onMove, this);
     this.scene.input.off('pointerup', this.onUp, this);
     this.scene.input.off('pointerupoutside', this.onUp, this);
-    this.root.destroy();
+    this.releaseAll();
+    this.container.destroy();
   }
 }

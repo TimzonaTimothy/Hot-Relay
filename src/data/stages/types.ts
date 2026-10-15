@@ -1,28 +1,57 @@
-export interface Rect {
+/**
+ * Stage data format. Coordinates are world pixels;
+ * `y` of a platform is its top edge; an enemy's `y` is where its feet stand.
+ * Final Port Ileya stages move to Tiled maps in Gate 5 (LEVEL-02); this format stays
+ * as the in-memory shape that the Tiled loader will produce.
+ */
+import type { InsertionDef } from '../../systems/insertion';
+import type { WaterVolume } from '../../systems/water';
+
+export type PlatformKind = 'solid' | 'oneway';
+
+export interface PlatformDef {
   x: number;
-  /** Top edge (the walkable surface). */
   y: number;
   w: number;
   h: number;
+  kind: PlatformKind;
+  /** Floating pontoon: drawn as a moored float that bobs (collision stays fixed). */
+  pontoon?: boolean;
 }
 
-export type EnemyKind = 'rifleman';
-export type DecorKind = 'palm' | 'fern' | 'pillar';
+export type EnemyType = 'rifleman';
 
 export interface EnemySpawn {
-  kind: EnemyKind;
+  type: EnemyType;
   x: number;
-  /** Feet position. */
   y: number;
 }
 
-export interface Arena {
-  /** Player crossing this x locks the camera. */
+/** A section where the camera locks until every spawned enemy is cleared. */
+export interface ArenaDef {
   triggerX: number;
   left: number;
   right: number;
-  /** Each wave drops in when the previous one is cleared. */
-  waves: EnemySpawn[][];
+  spawns: EnemySpawn[];
+}
+
+export interface MineDef {
+  x: number;
+  y: number;
+}
+
+export interface EelDef {
+  x: number;
+  y: number;
+  minX: number;
+  maxX: number;
+}
+
+/** Breakable grate covering a hidden route. */
+export interface GrateDef {
+  x: number;
+  top: number;
+  h: number;
 }
 
 export interface StageDef {
@@ -30,17 +59,22 @@ export interface StageDef {
   name: string;
   width: number;
   height: number;
-  /** Target clear time for an S rank. */
-  parSec: number;
-  /** Water surface; falling below it knocks the operator out. */
-  waterY: number;
-  spawn: { x: number; y: number };
-  solids: Rect[];
-  /** One-way platforms: land from above, drop through with down + jump. */
-  platforms: Rect[];
-  checkpoints: { x: number; y: number }[];
+  parTimeMs: number;
+  start: { x: number; y: number };
+  platforms: PlatformDef[];
+  /** Water volumes; the top edge of each is the surface. */
+  water: WaterVolume[];
   enemies: EnemySpawn[];
-  arenas: Arena[];
+  mines: MineDef[];
+  eels: EelDef[];
+  grates: GrateDef[];
+  /** Supply caches (usually behind a grate). */
+  caches: { x: number; y: number }[];
+  checkpoints: { x: number; y: number }[];
+  arenas: ArenaDef[];
   goal: { x: number; y: number };
-  decor: { kind: DecorKind; x: number; y: number; seed: number; size?: number }[];
+  /** Opening helicopter insertion; omit for a plain start. */
+  insertion?: InsertionDef;
+  /** Grass tufts that sway (and bend in rotor wash), as x positions on the ground. */
+  tufts: { x: number; y: number }[];
 }

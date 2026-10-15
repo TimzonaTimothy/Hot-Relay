@@ -1,17 +1,26 @@
 import Phaser from 'phaser';
-import { services } from '../systems/services';
+import { SCENES } from '../config/constants';
+import { saves } from '../systems/services';
+import { sfx } from '../systems/Sfx';
+import { telemetry } from '../systems/Telemetry';
+import { FLAGS } from '../systems/flags';
+import { input } from '../systems/InputManager';
+import { loadFonts } from '../ui/fonts';
 
-/** Loads the save before anything else so settings apply from the first frame. */
+/** Loads the local save before anything reads settings (SAVE-02). */
 export class BootScene extends Phaser.Scene {
   constructor() {
-    super('Boot');
+    super(SCENES.boot);
   }
 
-  create(): void {
-    services.input.attach();
-    void services.save.load().then((d) => {
-      services.sfx.enabled = d.settings.sound;
-      this.scene.start('Preload');
-    });
+  async create(): Promise<void> {
+    input.attach();
+    telemetry.debug = FLAGS.debug;
+    const [data] = await Promise.all([saves.load(), loadFonts()]);
+    sfx.setVolume(data.settings.volume);
+    telemetry.log('session_start', { ...telemetry.context(), mode: FLAGS.mode });
+    window.__hotRelay = { telemetry };
+    document.getElementById('boot')?.remove();
+    this.scene.start(SCENES.preload);
   }
 }

@@ -1,27 +1,14 @@
-import { InputManager } from './InputManager';
-import { SaveStore } from './SaveStore';
-import { Telemetry } from './Telemetry';
-import { Sfx } from './Sfx';
-import { FpsMeter } from './FpsMeter';
-import { parseFlags, type Flags } from './flags';
+/** Shared services, created once in Boot and read by every scene. */
+import { get, set } from 'idb-keyval';
+import { MemoryStore, SaveStore, type KeyValueStore } from './SaveStore';
 
-/** App-wide singletons shared by every scene. */
-export const services = {
-  input: new InputManager(),
-  save: new SaveStore(),
-  telemetry: new Telemetry(),
-  sfx: new Sfx(),
-  fps: new FpsMeter(),
-  flags: (typeof location !== 'undefined' ? parseFlags(location.search) : parseFlags('')) as Flags,
-  /** True once a touch has been seen; drives touchMode 'auto'. */
-  touchSeen: false,
-};
-
-export type Services = typeof services;
-
-export function touchActive(): boolean {
-  const mode = services.save.data.settings.touchMode;
-  if (services.flags.touch || mode === 'on') return true;
-  if (mode === 'off') return false;
-  return services.touchSeen;
+function browserStore(): KeyValueStore {
+  try {
+    if (typeof indexedDB === 'undefined') return new MemoryStore();
+    return { get: (k) => get(k), set: (k, v) => set(k, v) };
+  } catch {
+    return new MemoryStore();
+  }
 }
+
+export const saves = new SaveStore(browserStore());

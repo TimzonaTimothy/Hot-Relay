@@ -1,87 +1,128 @@
+/**
+ * Pooled bullets (COMBAT-02). Bullets are recycled, never created mid-fight,
+ * so a screen full of fire does not trigger garbage-collection stutter on phones.
+ */
 import Phaser from 'phaser';
 import { DEPTH } from '../config/constants';
-
-export type Team = 'player' | 'enemy';
+import { UNDERWATER_REDUCED } from '../data/weapons';
+import { pointInWater, type WaterVolume } from '../systems/water';
 
 export class Bullet extends Phaser.Physics.Arcade.Image {
-  team: Team = 'player';
   damage = 1;
-  /** Remaining enemies this bullet can pass through. */
-  pierce = 0;
-  life = 0;
-  /** Enemies already hit, so a piercing round damages each once. */
-  readonly hits = new Set<object>();
-
-  fire(x: number, y: number, angle: number, speed: number, texture: string, damage: number, pierce: number, life: number): void {
-    this.enableBody(true, x, y, true, true);
-    this.setTexture(texture);
-    this.setRotation(angle);
-    this.damage = damage;
-    this.pierce = pierce;
-    this.life = life;
-    this.hits.clear();
-    const body = this.body as Phaser.Physics.Arcade.Body;
-    const s = this.team === 'enemy' ? 10 : 8;
-    body.setSize(s, s);
-    body.setOffset(this.width / 2 - s / 2, this.height / 2 - s / 2);
-    body.setAllowGravity(false);
-    body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
-  }
-
-  kill(): void {
-    this.disableBody(true, true);
-  }
+  pierce = 1;
+  lifeMs = 0;
+  /** Has entered water (slowed once). */
+  wet = false;
+  /** Keeps full speed in water (speargun bolts). */
+  waterproof = false;
+  /** Enemies already hit by this bullet, so a piercing shot never double-hits. */
+  readonly hitTargets = new Set<object>();
 }
 
-/** Fixed-size pool per team. Nothing is allocated while playing. */
+export interface FireOptions {
+  x: number;
+  y: number;
+  dirX: number;
+  dirY: number;
+  speed: number;
+  damage: number;
+  pierce: number;
+  lifeMs: number;
+  /** Stretch the sprite along its travel direction (longer = heavier-looking shot). */
+  length?: number;
+  tint?: number;
+  /** Fired from underwater (already slowed by the weapon rules). */
+  wet?: boolean;
+  waterproof?: boolean;
+}
+
 export class BulletPool {
   readonly group: Phaser.Physics.Arcade.Group;
-  readonly items: Bullet[] = [];
 
-  constructor(scene: Phaser.Scene, team: Team, size: number) {
-    this.group = scene.physics.add.group({ classType: Bullet, allowGravity: false, maxSize: size });
-    for (let i = 0; i < size; i++) {
-      const b = new Bullet(scene, -100, -100, team === 'player' ? 'bullet_smg' : 'bullet_enemy');
-      b.team = team;
-      scene.add.existing(b);
-      this.group.add(b);
+  constructor(scene: Phaser.Scene, texture: string, maxSize: number) {
+    this.group = scene.physics.add.group({
+      classType: Bullet,
+      maxSize,
+      allowGravity: false,
+      runChildUpdate: false,
+    });
+    // Warm the pool so the first firefight allocates nothing.
+    for (let i = 0; i < maxSize; i++) {
+      const b = this.group.create(-100, -100, texture) as Bullet;
       b.setDepth(DEPTH.bullets);
-      b.kill();
-      this.items.push(b);
+      b.disableBody(true, true);
     }
   }
 
-  fire(x: number, y: number, angle: number, speed: number, texture: string, damage = 1, pierce = 0, life = 1.2): Bullet | null {
-    const b = this.items.find((i) => !i.active);
+  fire(o: FireOptions): Bullet | null {
+    const b = this.group.getFirstDead(false) as Bullet | null;
     if (!b) return null;
-    b.fire(x, y, angle, speed, texture, damage, pierce, life);
+    b.enableBody(true, o.x, o.y, true, true);
+    b.damage = o.damage;
+    b.pierce = o.pierce;
+    b.lifeMs = o.lifeMs;
+    b.wet = o.wet ?? false;
+    b.waterproof = o.waterproof ?? false;
+    b.hitTargets.clear();
+    b.setRotation(Math.atan2(o.dirY, o.dirX));
+    b.setScale(o.length ? o.length / b.width : 1, 1);
+    if (o.tint !== undefined) b.setTint(o.tint);
+    else b.clearTint();
+    const body = b.body as Phaser.Physics.Arcade.Body;
+    body.setAllowGravity(false);
+    // a square hitbox regardless of rotation keeps diagonal shots fair
+    const size = Math.max(4, Math.min(8, o.length ?? b.width));
+    body.setSize(size, size, true);
+    body.setVelocity(o.dirX * o.speed, o.dirY * o.speed);
     return b;
   }
 
-  /** Age bullets and recycle the ones that leave the view or expire. */
-  tick(dt: number, view: Phaser.Geom.Rectangle, margin = 80): void {
-    for (const b of this.items) {
+  kill(b: Bullet): void {
+    b.disableBody(true, true);
+  }
+
+  /**
+   * Age bullets and recycle ones that expired or left the camera view. Rounds that hit the
+   * water slow down sharply and die soon after (except waterproof speargun bolts), which also
+   * makes diving a way to dodge rifle fire.
+   */
+  step(
+    dtMs: number,
+    view: Phaser.Geom.Rectangle,
+    water: readonly WaterVolume[] = [],
+    onEnterWater?: (x: number, y: number) => void,
+    margin = 32,
+  ): void {
+    for (const child of this.group.getChildren()) {
+      const b = child as Bullet;
       if (!b.active) continue;
-      b.life -= dt;
+      b.lifeMs -= dtMs;
+      if (!b.wet && water.length && pointInWater(b.x, b.y, water)) {
+        b.wet = true;
+        onEnterWater?.(b.x, b.y);
+        if (!b.waterproof) {
+          const body = b.body as Phaser.Physics.Arcade.Body;
+          body.velocity.scale(UNDERWATER_REDUCED.speed);
+          b.lifeMs = Math.min(b.lifeMs, 420);
+        }
+      }
       if (
-        b.life <= 0 ||
+        b.lifeMs <= 0 ||
         b.x < view.x - margin ||
         b.x > view.right + margin ||
         b.y < view.y - margin ||
         b.y > view.bottom + margin
       ) {
-        b.kill();
+        this.kill(b);
       }
     }
   }
 
-  get activeCount(): number {
-    let n = 0;
-    for (const b of this.items) if (b.active) n++;
-    return n;
+  countActive(): number {
+    return this.group.countActive(true);
   }
 
   clear(): void {
-    this.items.forEach((b) => b.active && b.kill());
+    for (const child of this.group.getChildren()) this.kill(child as Bullet);
   }
 }

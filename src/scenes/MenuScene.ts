@@ -1,113 +1,314 @@
+/**
+ * Title screen. Attract state (logo slam, squad lineup, PRESS START) → main menu → settings.
+ * Composition is deliberately asymmetric: identity and menu on the left, the squad on the right.
+ */
 import Phaser from 'phaser';
-import { FONT, FONT_DISPLAY, VIEW_H, VIEW_W } from '../config/constants';
-import { ARM, FRAME } from '../art/characters';
-import { paintBlock } from '../art/environment';
-import { rig } from '../art/registry';
-import { OPERATORS, SQUAD_ORDER } from '../data/operators';
-import { services } from '../systems/services';
-import { MenuList, settingsEntries, type MenuEntry } from '../ui/MenuList';
-import { formatTime } from '../ui/hudState';
+import { CANVAS_H, CANVAS_W, SCENES } from '../config/constants';
+import { MenuList } from '../ui/MenuList';
+import { FLAGS } from '../systems/flags';
+import { input } from '../systems/InputManager';
+import { saves } from '../systems/services';
+import { sfx } from '../systems/Sfx';
+import { settingsItems } from '../ui/settingsItems';
+import { formatTime } from '../systems/rank';
+import { GREYBOX_01 } from '../data/stages/greybox01';
+import { OPERATORS } from '../data/operators';
+import { Rig } from '../entities/Rig';
+import { Backdrop } from '../ui/Backdrop';
+import { CSSC, PALETTE, css, metalFill, plate, txt } from '../ui/theme';
+import type { SquadMode } from '../systems/Squad';
+
+const LEFT = 64;
 
 export class MenuScene extends Phaser.Scene {
   private menu: MenuList | null = null;
-  private layers: { t: Phaser.GameObjects.TileSprite; f: number }[] = [];
-  private scroll = 0;
-  private mode: 'relay' | 'solo' = 'relay';
+  private mode: SquadMode = FLAGS.mode;
+  private view: 'attract' | 'main' | 'settings' = 'attract';
+  private pressStart!: Phaser.GameObjects.Text;
+  private pressStartPlate!: Phaser.GameObjects.Graphics;
+  private panelTitle!: Phaser.GameObjects.Text;
+  private hint!: Phaser.GameObjects.Text;
+  private rigs: { rig: Rig; x: number; y: number; facing: 1 | -1; t: number }[] = [];
 
   constructor() {
-    super('Menu');
+    super(SCENES.menu);
   }
 
-  create(): void {
-    this.mode = services.flags.mode;
-    this.layers = [];
-    this.add.image(0, 0, 'sky').setOrigin(0);
-    const layer = (key: string, y: number, h: number, f: number) => this.layers.push({ t: this.add.tileSprite(0, y, VIEW_W, h, key).setOrigin(0), f });
-    layer('clouds', 10, 300, 0.1);
-    layer('far', -30, 540, 0.25);
-    layer('mid', 40, 540, 0.6);
-    this.add.tileSprite(0, 476, VIEW_W, 70, 'water').setOrigin(0);
+  create(data: { skipAttract?: boolean } = {}): void {
+    this.menu = null;
+    this.rigs = [];
+    this.cameras.main.setBackgroundColor(PALETTE.ink);
+    new Backdrop(this);
 
-    // the squad on a ruined walkway
-    if (!this.textures.exists('menu_ledge')) this.textures.addCanvas('menu_ledge', paintBlock({ w: 420, h: 120, paintDepth: 200, oneWay: false, seed: 99 }));
-    this.add.image(560, 430, 'menu_ledge').setOrigin(0);
-    SQUAD_ORDER.forEach((id, i) => {
-      const x = 640 + i * 110;
-      const y = 440 - 2;
-      const body = this.add.sprite(x, y, `op_${id}`, 'idle0').setOrigin(0.5, FRAME.footY / FRAME.h);
-      body.play({ key: `op_${id}_idle`, startFrame: i % 2 });
-      const s = rig(id).shoulder.idle0;
-      this.add
-        .image(x + s.x, y + s.y, `arm_${id}_r`)
-        .setOrigin(ARM.pivotX / ARM.w, ARM.pivotY / ARM.h)
-        .setRotation(-0.15 - i * 0.05);
-      this.add
-        .text(x, y + 14, OPERATORS[id].name.toUpperCase(), { fontFamily: FONT_DISPLAY, fontSize: '15px', color: '#' + OPERATORS[id].color.toString(16).padStart(6, '0') })
-        .setOrigin(0.5, 0)
-        .setStroke('#1b1a17', 4);
+    this.buildLogo();
+    this.buildLineup();
+
+    this.pressStartPlate = this.add.graphics();
+    plate(this.pressStartPlate, LEFT - 20, 302, 300, 54, {
+      skew: 18,
+      fill: PALETTE.ink,
+      fillAlpha: 0.75,
     });
-    this.add.image(0, 0, 'near').setOrigin(0).setAlpha(0.95).setX(-700);
+    this.pressStart = this.add
+      .text(LEFT + 14, 330, 'PRESS START', txt('hud', 40, CSSC.bone, { letterSpacing: 6 }))
+      .setOrigin(0, 0.5);
+    this.tweens.add({
+      targets: this.pressStart,
+      alpha: 0.15,
+      duration: 520,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Stepped',
+    });
 
-    // title
-    this.add.rectangle(0, 0, 420, VIEW_H, 0x0b120e, 0.55).setOrigin(0);
-    this.add
-      .text(210, 70, 'HOT RELAY', { fontFamily: FONT_DISPLAY, fontSize: '68px', color: '#ff9a3c' })
-      .setOrigin(0.5)
-      .setStroke('#1b1a17', 10)
-      .setShadow(4, 4, '#000000', 0, true, true);
-    this.add
-      .text(210, 118, 'THREE OPERATORS · ONE RELAY', { fontFamily: FONT_DISPLAY, fontSize: '16px', color: '#ffe2a8' })
-      .setOrigin(0.5);
-    const best = services.save.data.best.jungle01;
-    this.add
-      .text(210, 146, best ? `Verdant Steps · best ${best.rank} · ${formatTime(best.timeSec)}` : 'Stage 1 · Verdant Steps', { fontFamily: FONT, fontSize: '14px', color: '#b9d6c3' })
-      .setOrigin(0.5);
+    this.panelTitle = this.add
+      .text(LEFT + 4, 250, '', txt('hud', 22, CSSC.ember, { letterSpacing: 4 }))
+      .setOrigin(0, 0.5);
+    this.hint = this.add
+      .text(LEFT + 4, 410, '', txt('body', 13, CSSC.muted, { lineSpacing: 6 }))
+      .setOrigin(0, 0);
+
+    // footer
+    const best = saves.data.bestByStage[GREYBOX_01.id];
     this.add
       .text(
-        210,
-        VIEW_H - 64,
-        'Move: Arrows/WASD · Jump: Space/Z/K · Fire: X/J\nSwap: C/L/E · Hold aim: Shift/V · Pause: Esc/P\nGamepad and touch supported',
-        { fontFamily: FONT, fontSize: '13px', color: '#cfe8dc', align: 'center', lineSpacing: 4 },
+        LEFT,
+        CANVAS_H - 22,
+        'PROTOTYPE  ·  VERTICAL SLICE  ·  PLACEHOLDER ART',
+        txt('hud', 18, CSSC.dim, { letterSpacing: 2 }),
       )
-      .setOrigin(0.5);
-    this.showMain();
+      .setOrigin(0, 0.5);
+    if (best) {
+      this.add
+        .text(
+          CANVAS_W - 28,
+          CANVAS_H - 22,
+          `BEST  ${best.rank}  ·  ${formatTime(best.timeMs)}`,
+          txt('hud', 22, CSSC.emberHi, { letterSpacing: 2 }),
+        )
+        .setOrigin(1, 0.5);
+    }
 
-    const unlock = () => services.sfx.unlock();
-    this.input.once('pointerdown', unlock);
-    this.input.keyboard?.once('keydown', unlock);
+    input.flush();
+    if (data.skipAttract || FLAGS.debug) this.showMain();
+    else this.input.once('pointerdown', () => this.view === 'attract' && this.showMain());
+  }
+
+  private buildLogo(): void {
+    const g = this.add.graphics();
+    // ember slash behind the wordmark
+    plate(g, LEFT - 90, 92, 560, 92, { skew: 40, fill: PALETTE.ember, fillAlpha: 0.9 });
+    plate(g, LEFT - 90, 184, 520, 8, { skew: 4, fill: PALETTE.signal });
+    g.setAlpha(0);
+
+    const eyebrow = this.add
+      .text(
+        LEFT + 2,
+        72,
+        'RELAY TEAM  ·  RAPID RESPONSE',
+        txt('hud', 22, CSSC.emberHi, { letterSpacing: 5 }),
+      )
+      .setOrigin(0, 0.5)
+      .setAlpha(0);
+
+    const logo = this.add
+      .text(LEFT, 138, 'HOT RELAY', txt('display', 96, CSSC.bone))
+      .setOrigin(0, 0.5)
+      .setStroke(CSSC.ink, 12)
+      .setShadow(6, 6, '#070b11', 0, true, true);
+    metalFill(logo);
+
+    const tagline = this.add
+      .text(
+        LEFT + 4,
+        212,
+        'FOUR OPERATORS  ·  PICK THREE  ·  ONE RELAY',
+        txt('hud', 26, CSSC.bone, { letterSpacing: 3 }),
+      )
+      .setOrigin(0, 0.5)
+      .setAlpha(0);
+
+    // slam
+    logo.setScale(1.7).setAlpha(0);
+    this.tweens.add({
+      targets: logo,
+      scale: 1,
+      alpha: 1,
+      duration: 260,
+      delay: 150,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        if (saves.data.settings.screenShake) this.cameras.main.shake(140, 0.006);
+        if (saves.data.settings.flashing) this.cameras.main.flash(120, 255, 170, 90);
+        this.tweens.add({ targets: [g, eyebrow, tagline], alpha: 1, duration: 260 });
+      },
+    });
+  }
+
+  private buildLineup(): void {
+    const baseY = 452;
+    const spots = [
+      { x: 600, scale: 5, delay: 0, facing: 1 as const },
+      { x: 700, scale: 5.6, delay: 120, facing: 1 as const },
+      { x: 800, scale: 5.6, delay: 240, facing: -1 as const },
+      { x: 895, scale: 5, delay: 360, facing: -1 as const },
+    ];
+    OPERATORS.forEach((op, i) => {
+      const spot = spots[i];
+      if (!spot) return;
+      const rim = this.add
+        .image(spot.x, baseY - 60, 'glow')
+        .setScale(2.6, 4.5)
+        .setTint(op.color)
+        .setAlpha(0.35)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.add.ellipse(spot.x, baseY + 2, 64, 10, 0x000000, 0.45);
+      const rig = new Rig(this, op.rig, op.weapons[0], 2, spot.scale);
+      rig.setAlpha(0);
+      const name = this.add
+        .text(spot.x, baseY + 22, op.name.toUpperCase(), txt('display', 18, CSSC.bone))
+        .setOrigin(0.5, 0.5);
+      const role = this.add
+        .text(
+          spot.x,
+          baseY + 42,
+          op.role.toUpperCase(),
+          txt('hud', 17, css(op.color), { letterSpacing: 3 }),
+        )
+        .setOrigin(0.5, 0.5);
+      for (const o of [rim, name, role]) o.setAlpha(0);
+      const entry = { rig, x: spot.x, y: baseY + 30, facing: spot.facing, t: 0 };
+      this.rigs.push(entry);
+      this.tweens.add({
+        targets: entry,
+        y: baseY,
+        duration: 380,
+        delay: 500 + spot.delay,
+        ease: 'Cubic.easeOut',
+      });
+      this.tweens.add({ targets: rig.root, alpha: 1, duration: 380, delay: 500 + spot.delay });
+      this.tweens.add({
+        targets: [rim, name, role],
+        alpha: { from: 0, to: 1 },
+        duration: 380,
+        delay: 650 + spot.delay,
+      });
+      this.tweens.add({
+        targets: rim,
+        alpha: 0.2,
+        duration: 1400,
+        yoyo: true,
+        repeat: -1,
+        delay: 1100 + spot.delay,
+      });
+    });
+  }
+
+  /** Idle the lineup: breathing, weapons at port arms with a slow drift. */
+  private updateLineup(delta: number): void {
+    for (const r of this.rigs) {
+      r.t += delta;
+      // weapons held at port arms (angled up) so the lineup's guns never cross
+      const sway = Math.sin(r.t / 900 + r.x) * 0.08;
+      r.rig.update(
+        delta,
+        {
+          state: 'idle',
+          stateMs: r.t,
+          vx: 0,
+          vy: 0,
+          runSpeed: 100,
+          aim: { x: r.facing * (0.42 + sway), y: -0.9 },
+          facing: r.facing,
+          armReady: true,
+          reload: null,
+          swimDir: { x: 0, y: 0 },
+        },
+        r.x,
+        r.y,
+      );
+    }
   }
 
   private showMain(): void {
+    sfx.unlock();
+    this.view = 'main';
+    this.pressStart.setVisible(false);
+    this.pressStartPlate.setVisible(false);
     this.menu?.destroy();
-    const entries: MenuEntry[] = [
-      { label: () => (this.mode === 'solo' ? 'PLAY (SOLO)' : 'PLAY'), action: () => this.play() },
+    this.panelTitle.setText('MAIN MENU');
+    const items = [
+      { label: () => 'Deploy', action: () => this.play() },
+      { label: () => 'Settings', action: () => this.showSettings() },
     ];
-    if (services.flags.debug) {
-      entries.push({
-        label: () => `MODE: ${this.mode === 'solo' ? 'SOLO (H2 baseline)' : 'RELAY'}`,
-        cycle: true,
-        action: () => (this.mode = this.mode === 'solo' ? 'relay' : 'solo'),
+    if (FLAGS.debug) {
+      items.push({
+        label: () => `Mode: ${this.mode === 'relay' ? 'Relay' : 'Solo'}`,
+        action: () => {
+          this.mode = this.mode === 'relay' ? 'solo' : 'relay';
+        },
       });
+      items.push({ label: () => 'Stress test', action: () => this.scene.start(SCENES.stress) });
     }
-    entries.push({ label: () => 'SETTINGS', action: () => this.showSettings() });
-    if (services.flags.debug) entries.push({ label: () => 'STRESS TEST', action: () => this.scene.start('Stress') });
-    this.menu = new MenuList(this, 210, 210, entries, 320);
+    this.menu = new MenuList(this, items, LEFT + 34, 276, {
+      width: 330,
+      height: 44,
+      spacing: 54,
+      fontSize: 20,
+    });
+    this.hint.setText(
+      'MOVE  arrows / WASD     JUMP / SWIM UP  Z / Space     FIRE  X / J\nRELAY SWAP  C / Shift     WEAPON  Q     RELOAD  R     PAUSE  Esc\nGamepad and touch supported',
+    );
   }
 
   private showSettings(): void {
+    this.view = 'settings';
     this.menu?.destroy();
-    this.menu = new MenuList(this, 210, 180, settingsEntries(() => this.showMain()), 380, 40);
+    this.panelTitle.setText('SETTINGS');
+    this.menu = new MenuList(
+      this,
+      [...settingsItems(), { label: () => 'Back', action: () => this.showMain() }],
+      LEFT + 34,
+      270,
+      {
+        width: 400,
+        height: 26,
+        spacing: 30,
+        fontSize: 14,
+      },
+    );
+    this.hint.setText('');
   }
 
   private play(): void {
-    services.sfx.unlock();
-    this.scene.start('Stage', { stage: 'jungle01', mode: this.mode });
+    sfx.clear();
+    if (saves.data.settings.flashing) this.cameras.main.flash(160, 255, 140, 60);
+    this.menu?.setEnabled(false);
+    this.cameras.main.fadeOut(260, 7, 11, 17);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
+      this.scene.start(SCENES.squad, { mode: this.mode }),
+    );
   }
 
   override update(_t: number, delta: number): void {
-    services.fps.push(delta);
-    this.scroll += delta * 0.03;
-    for (const l of this.layers) l.t.tilePositionX = this.scroll * l.f;
-    this.menu?.update(services.input.poll());
+    this.updateLineup(delta);
+    if (window.__hotRelay) window.__hotRelay.state = { scene: 'menu', view: this.view };
+    if (this.view === 'attract') {
+      input.update();
+      const f = input.consume();
+      const held = input.peekHeld();
+      if (
+        f.jumpPressed ||
+        f.confirmPressed ||
+        f.pausePressed ||
+        f.firePressed ||
+        f.swapPressed ||
+        held.fire
+      )
+        this.showMain();
+      return;
+    }
+    this.menu?.update();
+    if (this.view === 'settings' && this.menu?.lastFrame?.pausePressed) this.showMain();
   }
 }

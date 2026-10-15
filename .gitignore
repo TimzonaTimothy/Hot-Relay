@@ -1,11 +1,7 @@
-node_modules/
-dist/
-dev-dist/
-coverage/
-test-results/
-playwright-report/
-.env
-.env.*
-.DS_Store
+node_modules
+dist
+dev-dist
 *.log
-.vite/
+.DS_Store
+test-results
+scripts/out

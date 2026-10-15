@@ -1,296 +1,550 @@
+/**
+ * The active operator (character controller): movement on land and in water, aiming, entry
+ * attacks, ledge climbing and the visual rig.
+ *
+ * One invisible physics body is shared by the whole squad; a Relay Swap changes its stats,
+ * weapons and rig. Movement runs in fixed steps called by the stage; this class never reads
+ * the keyboard itself. The cut-out Rig is purely visual and is driven by an AnimStateMachine,
+ * which is also stepped in fixed steps so states are deterministic.
+ */
 import Phaser from 'phaser';
-import { DEPTH } from '../config/constants';
 import { TUNING } from '../config/tuning';
-import { ARM, FRAME } from '../art/characters';
-import { rig } from '../art/registry';
+import { DEPTH } from '../config/constants';
 import type { OperatorDef } from '../data/operators';
 import { JumpController } from '../systems/JumpController';
-import { aimAngle } from '../systems/aim';
+import { aimFromInput, type AimResult, type Vec } from '../systems/aim';
 import type { InputFrame } from '../systems/InputManager';
-import type { SfxName } from '../systems/Sfx';
+import { sfx } from '../systems/Sfx';
+import { AnimStateMachine, type AnimState } from '../systems/anim';
+import { swimStep, waterAt, type WaterInfo, type WaterVolume } from '../systems/water';
+import { ledgeAhead, type Rect } from '../systems/geometry';
+import type { Arsenal } from '../systems/Arsenal';
+import { Rig } from './Rig';
+import type { Effects } from '../stage/Effects';
 
-export interface ShotOpts {
-  texture: string;
-  speed: number;
-  damage: number;
-  pierce: number;
-  scale?: number;
+export type GroundKind = 'solid' | 'oneway' | null;
+
+/** What the player needs to know about the level. */
+export interface PlayerWorld {
+  platforms: readonly Rect[];
+  water: readonly WaterVolume[];
+  fx: Effects;
 }
 
-/** What the player may ask of the stage. */
-export interface PlayerContext {
-  fire(x: number, y: number, angle: number, shot: ShotOpts): void;
-  muzzleFlash(x: number, y: number, angle: number): void;
-  sfx(name: SfxName): void;
-  /** Touch aim-assist; returns the angle unchanged when off. */
-  assist(angle: number, x: number, y: number): number;
-  standingOnPlatform(body: Phaser.Physics.Arcade.Body): boolean;
-  /** Rurik's ground-pound landed. */
-  pound(x: number, y: number): void;
-  dust(x: number, y: number): void;
+const DRY: WaterInfo = {
+  volume: null,
+  inWater: false,
+  submerged: false,
+  depth: -Infinity,
+  surfaceY: 0,
+};
+
+interface Climb {
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  ms: number;
 }
-
-const BODY_W = 28;
-const BODY_H = 74;
-const CROUCH_H = 48;
-
-type Entry = { kind: 'slide' | 'pound' | 'pierce'; t: number } | null;
 
 export class Player extends Phaser.Physics.Arcade.Sprite {
-  op!: OperatorDef;
+  def: OperatorDef;
   facing: 1 | -1 = 1;
-  aim = 0;
-  grounded = false;
   crouching = false;
-  invuln = 0;
-  dropTimer = 0;
-  alive = true;
-  /** Debug god mode for the smoke-test bot. */
-  god = false;
-  readonly arm: Phaser.GameObjects.Image;
-  private readonly jumpCtl = new JumpController(TUNING.jump);
-  private fireTimer = 0;
-  private recoil = 0;
-  private entry: Entry = null;
-  private wasGrounded = false;
-  private blink = 0;
+  aim: AimResult = { dir: { x: 1, y: 0 }, crouch: false, explicitVertical: false };
+  /** Weapons of the active operator (owned by the squad member). */
+  arsenal: Arsenal | null = null;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, op: OperatorDef) {
-    super(scene, x, y, `op_${op.id}`, 'idle0');
+  invulnMs = 0;
+  dropThroughMs = 0;
+  /** Set by the platform colliders during each physics step. */
+  groundKind: GroundKind = null;
+
+  // entry attacks
+  slideMs = 0;
+  slideShotsLeft = 0;
+  slideShotTimer = 0;
+  pounding = false;
+  surgeMs = 0;
+
+  // water
+  water: WaterInfo = DRY;
+  private waterJumpMs = 0;
+  private dripMs = 0;
+  private climb: Climb | null = null;
+
+  // animation and presentation
+  readonly rig: Rig;
+  readonly anim = new AnimStateMachine();
+  private readonly shadow: Phaser.GameObjects.Image;
+  private hurtPending = false;
+  dead = false;
+  victory = false;
+  /** Hanging on the insertion rope (position driven by the cinematic). */
+  onRope = false;
+  /** Shown or hidden as a whole (rig, shadow). */
+  shown = true;
+
+  private jumpCtl = new JumpController(TUNING.coyoteMs, TUNING.jumpBufferMs);
+  private jumpCutDone = true;
+  private wasGrounded = true;
+  private fallSpeed = 0;
+  private swimDir: Vec = { x: 1, y: 0 };
+  lastSafe = { x: 0, y: 0 };
+
+  constructor(
+    scene: Phaser.Scene,
+    x: number,
+    feetY: number,
+    def: OperatorDef,
+    private readonly world: PlayerWorld,
+  ) {
+    super(scene, x, feetY - 10, 'hitbox');
+    this.def = def;
     scene.add.existing(this);
     scene.physics.add.existing(this);
-    this.setOrigin(0.5, FRAME.footY / FRAME.h).setDepth(DEPTH.player);
-    this.arm = scene.add.image(x, y, `arm_${op.id}_r`).setDepth(DEPTH.player + 1);
-    (this.body as Phaser.Physics.Arcade.Body).setMaxVelocityY(TUNING.maxFall);
-    this.setOperator(op);
+    this.setVisible(false); // the rig draws the operator
+    this.rig = new Rig(scene, def.rig, def.weapons[0], DEPTH.player);
+    this.shadow = world.fx.makeShadow();
+    this.arcadeBody.setMaxVelocityY(TUNING.maxFallSpeed);
+    this.arcadeBody.setCollideWorldBounds(false);
+    this.setStanding();
+    this.lastSafe = { x, y: feetY };
   }
 
-  get pbody(): Phaser.Physics.Arcade.Body {
+  get arcadeBody(): Phaser.Physics.Arcade.Body {
     return this.body as Phaser.Physics.Arcade.Body;
   }
 
-  get entering(): boolean {
-    return this.entry !== null;
+  get grounded(): boolean {
+    return this.arcadeBody.blocked.down || this.arcadeBody.touching.down;
   }
 
-  setOperator(op: OperatorDef): void {
-    this.op = op;
-    this.setTexture(`op_${op.id}`, 'idle0');
-    this.fireTimer = 0;
-    this.entry = null;
-    this.setHitbox(false);
+  get feetY(): number {
+    return this.arcadeBody.bottom;
   }
 
-  private setHitbox(crouch: boolean): void {
-    const s = this.op.id === 'rurik' ? 1.08 : 1;
-    const h = (crouch ? CROUCH_H : BODY_H) * s;
-    this.pbody.setSize(BODY_W, h);
-    this.pbody.setOffset(FRAME.footX - BODY_W / 2, FRAME.footY - h);
+  get inWater(): boolean {
+    return this.water.inWater;
   }
 
-  /** Tag in with the operator's entry attack and brief invulnerability. */
-  startEntry(): void {
-    this.invuln = Math.max(this.invuln, TUNING.relay.entryInvuln);
-    this.entry = { kind: this.op.entry, t: 0 };
+  get submerged(): boolean {
+    return this.water.submerged;
   }
 
-  respawn(x: number, y: number, invuln: number): void {
-    this.alive = true;
-    this.setVisible(true);
-    this.arm.setVisible(true);
-    this.setPosition(x, y);
-    this.pbody.reset(x, y);
-    this.pbody.setVelocity(0, 0);
-    this.pbody.enable = true;
-    this.jumpCtl.reset();
-    this.invuln = invuln;
-    this.entry = null;
+  get climbing(): boolean {
+    return this.climb !== null;
   }
 
-  knockOut(): void {
-    this.alive = false;
-    this.entry = null;
-    this.pbody.setVelocity(0, 0);
-    this.pbody.enable = false;
-    this.setVisible(false);
-    this.arm.setVisible(false);
+  get animState(): AnimState {
+    return this.anim.state;
   }
 
-  /** The point the gun pivots on, in world space. */
-  shoulder(): { x: number; y: number } {
-    const name = String(this.frame.name);
-    const r = rig(this.op.id);
-    const s = r.shoulder[name] ?? r.shoulder.idle0;
-    return { x: this.x + s.x * this.facing, y: this.y + s.y };
+  setOperator(def: OperatorDef, arsenal: Arsenal): void {
+    this.def = def;
+    this.arsenal = arsenal;
+    this.rig.setId(def.rig, arsenal.current.id);
+    this.crouching = false;
+    this.surgeMs = 0;
+    this.setStanding();
   }
 
-  muzzle(angle = this.aim): { x: number; y: number } {
-    const r = rig(this.op.id);
-    const s = this.shoulder();
-    const gy = this.facing > 0 ? r.gunY : -r.gunY;
-    const c = Math.cos(angle);
-    const n = Math.sin(angle);
-    return { x: s.x + c * r.muzzle - n * gy, y: s.y + n * r.muzzle + c * gy };
+  /** Refresh the arm texture after a weapon switch. */
+  syncWeapon(): void {
+    if (this.arsenal) this.rig.setWeapon(this.arsenal.current.id);
   }
 
-  tick(dt: number, f: InputFrame, ctx: PlayerContext): void {
-    if (!this.alive) return;
-    const body = this.pbody;
-    this.invuln = Math.max(0, this.invuln - dt);
-    this.dropTimer = Math.max(0, this.dropTimer - dt);
-    this.recoil = Math.max(0, this.recoil - dt * 40);
-    this.grounded = body.blocked.down || body.touching.down;
-    if (this.grounded && !this.wasGrounded && body.velocity.y >= 0) ctx.dust(this.x, this.y);
-    this.wasGrounded = this.grounded;
+  private setStanding(): void {
+    this.arcadeBody.setSize(10, 18).setOffset(1, 2);
+  }
 
-    if (this.entry && this.tickEntry(dt, ctx)) return;
+  private setCrouched(): void {
+    this.arcadeBody.setSize(10, 11).setOffset(1, 9);
+  }
 
-    const h = f.right ? 1 : f.left ? -1 : 0;
-    if (h !== 0) this.facing = h as 1 | -1;
-    const crouch = this.grounded && f.down && h === 0;
-    if (crouch !== this.crouching) {
-      this.crouching = crouch;
-      this.setHitbox(crouch);
+  /** Muzzle position in world space for an aim direction (follows the rig's shoulder). */
+  muzzle(dir: Vec = this.aim.dir): Vec {
+    const w = this.arsenal?.current;
+    return this.rig.muzzle(dir, w?.muzzle ?? 18);
+  }
+
+  ejectionPort(dir: Vec = this.aim.dir): Vec {
+    return this.rig.ejectionPort(dir);
+  }
+
+  /** Recoil: the arm kicks back; heavy weapons also nudge the body on the ground. */
+  recoil(px: number): void {
+    this.rig.kick(px);
+    if (!this.inWater && this.grounded && px >= 1.8)
+      this.arcadeBody.velocity.x -= this.facing * px * 6;
+  }
+
+  /** A hit landed: knock back away from the source and play the hurt beat. */
+  knockback(fromX: number): void {
+    const dir = this.x >= fromX ? 1 : -1;
+    const k = this.inWater ? 0.4 : 1;
+    this.arcadeBody.setVelocity(
+      dir * TUNING.hurtKnockX * k,
+      this.inWater ? this.arcadeBody.velocity.y : -TUNING.hurtKnockY,
+    );
+    this.hurtPending = true;
+    this.slideMs = 0;
+    this.climb = null;
+  }
+
+  /** A hit that should play the hurt pose without moving the body (drowning). */
+  flinch(): void {
+    this.hurtPending = true;
+  }
+
+  /**
+   * One fixed step of movement. Returns true if the operator jumped this step.
+   */
+  stepMovement(dtMs: number, inp: InputFrame): boolean {
+    const body = this.arcadeBody;
+    this.invulnMs = Math.max(0, this.invulnMs - dtMs);
+    this.dropThroughMs = Math.max(0, this.dropThroughMs - dtMs);
+    this.waterJumpMs = Math.max(0, this.waterJumpMs - dtMs);
+
+    this.updateWater();
+    const grounded = this.grounded;
+    if (grounded && this.groundKind && !this.inWater) this.lastSafe = { x: this.x, y: this.feetY };
+
+    if (this.climb) {
+      this.stepClimb(dtMs);
+      this.groundKind = null;
+      return false;
     }
-    const planted = crouch || (f.lock && this.grounded);
-    const target = planted ? 0 : h * this.op.runSpeed;
-    const R = TUNING.run;
-    const accel = this.grounded ? (h !== 0 ? R.accelGround : R.frictionGround) : h !== 0 ? R.accelAir : R.frictionAir;
-    body.setVelocityX(approach(body.velocity.x, target, accel * dt));
 
-    if (f.down && f.jumpPressed && this.grounded && ctx.standingOnPlatform(body)) {
-      this.dropTimer = TUNING.jump.dropTime;
+    // --- slide (Kemi's entry attack) and surge (Tari's) override normal movement
+    if (this.slideMs > 0) {
+      this.slideMs -= dtMs;
+      body.setVelocityX(this.facing * TUNING.slideSpeed);
+      if (!this.crouching) {
+        this.crouching = true;
+        this.setCrouched();
+      }
+      if (this.slideMs <= 0) {
+        this.crouching = false;
+        this.setStanding();
+      }
+      this.groundKind = null;
+      return false;
+    }
+
+    if (this.inWater && this.waterJumpMs <= 0) {
+      const jumped = this.stepSwim(dtMs, inp);
+      this.groundKind = null;
+      return jumped;
+    }
+    body.setAllowGravity(true);
+    return this.stepLand(dtMs, inp, grounded);
+  }
+
+  private stepLand(dtMs: number, inp: InputFrame, grounded: boolean): boolean {
+    const dt = dtMs / 1000;
+    const body = this.arcadeBody;
+
+    // --- aim and crouch
+    this.aim = aimFromInput(inp, grounded, this.facing);
+    const wantCrouch = this.aim.crouch && grounded;
+    if (wantCrouch !== this.crouching) {
+      this.crouching = wantCrouch;
+      if (wantCrouch) this.setCrouched();
+      else this.setStanding();
+    }
+
+    // --- horizontal: accelerate towards target speed (analogue: a light tilt walks)
+    const ax = inp.axisX;
+    if (ax !== 0) this.facing = ax > 0 ? 1 : -1;
+    const surge = this.surgeMs > 0;
+    if (surge) this.surgeMs -= dtMs;
+    const target = this.crouching
+      ? 0
+      : surge
+        ? this.facing * this.def.runSpeed * 2.2
+        : ax * this.def.runSpeed;
+    const accel = grounded
+      ? target !== 0
+        ? TUNING.groundAccel
+        : TUNING.groundDecel
+      : target !== 0
+        ? TUNING.airAccel
+        : TUNING.airDecel;
+    const vx = body.velocity.x;
+    const diff = target - vx;
+    const stepV = accel * dt;
+    body.setVelocityX(Math.abs(diff) <= stepV ? target : vx + Math.sign(diff) * stepV);
+
+    // --- drop through a one-way platform: down + jump
+    let jumped = false;
+    if (inp.down && inp.jumpPressed && grounded && this.groundKind === 'oneway') {
+      this.dropThroughMs = TUNING.dropThroughMs;
+      this.jumpCtl.clear();
+      body.setVelocityY(40);
       this.y += 2;
-      this.jumpCtl.reset();
-    } else {
-      const j = this.jumpCtl.tick(dt, this.grounded, f.jumpPressed, f.jump, body.velocity.y);
-      if (j.jump) {
-        body.setVelocityY(-TUNING.jump.velocity * this.op.jumpScale);
-        this.grounded = false;
-        ctx.sfx('jump');
-      } else if (j.cut) {
-        body.setVelocityY(body.velocity.y * TUNING.jump.cutMultiplier);
+    } else if (this.jumpCtl.step(dtMs, grounded, inp.jumpPressed)) {
+      body.setVelocityY(-this.def.jumpVelocity);
+      this.jumpCutDone = false;
+      jumped = true;
+      sfx.jump();
+    }
+
+    // --- variable jump height: releasing early cuts the rise once
+    if (!this.jumpCutDone && !inp.jumpHeld && body.velocity.y < 0) {
+      body.setVelocityY(body.velocity.y * TUNING.jumpCutMultiplier);
+      this.jumpCutDone = true;
+    }
+    if (body.velocity.y >= 0) this.jumpCutDone = true;
+
+    if (this.pounding) body.setVelocityY(Math.max(body.velocity.y, 520));
+
+    this.groundKind = null; // colliders refill it during the coming physics step
+    return jumped;
+  }
+
+  private stepSwim(dtMs: number, inp: InputFrame): boolean {
+    const body = this.arcadeBody;
+    const T = TUNING.water;
+    const prof = this.def.swim;
+    const w = this.water;
+    body.setAllowGravity(false);
+    if (this.crouching) {
+      this.crouching = false;
+      this.setStanding();
+    }
+    this.pounding = false;
+
+    // aim freely in all 8 directions while swimming; holding only "down" underwater is a
+    // dive, so the gun stays level (down + left/right still aims diagonally)
+    this.aim = aimFromInput(inp, false, this.facing);
+    if (w.submerged && inp.down && !inp.left && !inp.right)
+      this.aim = { dir: { x: this.facing, y: 0 }, crouch: false, explicitVertical: false };
+    const ax = inp.axisX;
+    if (ax !== 0) this.facing = ax > 0 ? 1 : -1;
+
+    const onFloor = this.grounded;
+    // a sinker standing on the bottom walks it instead of swimming
+    const floorWalk = onFloor && prof.buoyancy < 0 && w.submerged;
+
+    // ledge assist: at the surface, pushing into a quay wall (or pressing up/jump) climbs out
+    if (!w.submerged && ax !== 0 && w.volume) {
+      const dir: 1 | -1 = ax > 0 ? 1 : -1;
+      const blocked = dir > 0 ? body.blocked.right : body.blocked.left;
+      if (blocked || inp.up || inp.jumpPressed) {
+        const ledge = ledgeAhead(
+          this.world.platforms,
+          { left: body.left, right: body.right, bottom: body.bottom },
+          dir,
+          w.surfaceY,
+          T.climbReach,
+        );
+        if (ledge) {
+          this.startClimb(ledge.x, ledge.y);
+          return false;
+        }
       }
     }
 
-    let a = aimAngle(f, this.facing, this.grounded);
-    if (crouch) a = this.facing > 0 ? 0 : Math.PI;
-    if (f.source === 'touch') {
-      const s = this.shoulder();
-      a = ctx.assist(a, s.x, s.y);
+    let jumped = false;
+    let { vx, vy } = swimStep(
+      body.velocity.x,
+      body.velocity.y,
+      { x: floorWalk ? 0 : ax, up: inp.up || inp.jumpHeld, down: inp.down },
+      prof,
+      T,
+      { submerged: w.submerged, depth: w.depth, onFloor },
+      dtMs,
+    );
+    if (floorWalk) vx = ax * this.def.runSpeed * T.floorWalkSpeed;
+    if (this.surgeMs > 0) {
+      // Tari's surge: a torpedo burst along the facing direction
+      this.surgeMs -= dtMs;
+      vx = this.facing * prof.speed * 2.2;
+      vy *= 0.5;
+      if (Math.random() < 0.5) this.world.fx.bubbles(this.x - this.facing * 6, this.y, 1);
     }
-    this.aim = a;
 
-    this.fireTimer -= dt;
-    if (f.fire && this.fireTimer <= 0) {
-      this.shoot(ctx);
-      this.fireTimer = 1 / this.op.weapon.rate;
+    if (inp.jumpPressed) {
+      if (!w.submerged) {
+        // jump out of the water (to a pontoon or quay)
+        vy = -T.waterJumpVelocity;
+        this.waterJumpMs = T.waterJumpMs;
+        this.jumpCutDone = false;
+        jumped = true;
+        sfx.jump();
+      } else {
+        // swim stroke: a burst towards the surface (or the held direction)
+        const kick = prof.speed * T.strokeBoost;
+        vy = inp.down ? Math.max(vy, kick * 0.6) : Math.min(vy, -kick);
+        vx += ax * kick * 0.4;
+        this.world.fx.bubbles(this.x, this.y - 4, 3);
+      }
+    }
+    body.setVelocity(vx, vy);
+    if (Math.hypot(vx, vy) > 14) {
+      const len = Math.hypot(vx, vy);
+      this.swimDir = { x: vx / len, y: vy / len };
+    } else {
+      this.swimDir = { x: 0, y: 0 };
+    }
+    return jumped;
+  }
+
+  private startClimb(toX: number, toY: number): void {
+    this.climb = { fromX: this.x, fromY: this.feetY, toX, toY, ms: 0 };
+    this.arcadeBody.setAllowGravity(false);
+    this.arcadeBody.setVelocity(0, 0);
+    this.arcadeBody.enable = false;
+    this.world.fx.splash(this.x, this.water.surfaceY, 0.3);
+    sfx.climb();
+  }
+
+  private stepClimb(dtMs: number): void {
+    const c = this.climb;
+    if (!c) return;
+    c.ms += dtMs;
+    const t = Math.min(1, c.ms / TUNING.water.climbMs);
+    // up first, then over the lip
+    const ty = t < 0.6 ? t / 0.6 : 1;
+    const tx = t < 0.4 ? 0 : (t - 0.4) / 0.6;
+    const feetX = c.fromX + (c.toX - c.fromX) * tx;
+    const feetY = c.fromY + (c.toY - 0.5 - c.fromY) * (1 - (1 - ty) ** 2);
+    this.arcadeBody.reset(feetX, feetY - 10);
+    if (t >= 1) {
+      this.climb = null;
+      this.arcadeBody.enable = true;
+      this.arcadeBody.reset(c.toX, c.toY - 10.5);
+      this.arcadeBody.setAllowGravity(true);
+      this.lastSafe = { x: c.toX, y: c.toY };
+      this.water = DRY;
     }
   }
 
-  /** Returns true while the entry attack owns movement. */
-  private tickEntry(dt: number, ctx: PlayerContext): boolean {
-    const e = this.entry!;
-    const body = this.pbody;
-    e.t += dt;
-    switch (e.kind) {
-      case 'slide':
-        // Kemi: low slide along the ground firing a burst forward.
-        if (e.t === dt) this.setHitbox(true);
-        this.crouching = true;
-        this.aim = this.facing > 0 ? 0 : Math.PI;
-        body.setVelocityX(this.facing * 640 * Math.max(0.3, 1 - e.t / 0.4));
-        this.fireTimer -= dt;
-        if (this.fireTimer <= 0) {
-          this.shoot(ctx);
-          this.fireTimer = 0.055;
-        }
-        if (e.t > 0.38) {
-          this.entry = null;
-          this.crouching = false;
-          this.setHitbox(false);
-        }
-        return true;
-      case 'pound':
-        // Rurik: slam down, shockwave on landing.
-        body.setVelocityX(0);
-        if (!this.grounded) {
-          body.setVelocityY(1200);
-          if (e.t < 3) return true;
-        }
-        ctx.pound(this.x, this.y);
-        this.entry = null;
-        return true;
-      case 'pierce':
-        // Mei-Lin: one charged round that passes through everything in line.
-        this.entry = null;
-        {
-          const m = this.muzzle();
-          ctx.fire(m.x, m.y, this.aim, { texture: 'bullet_dmr', speed: 1900, damage: 6, pierce: 99, scale: 1.7 });
-          ctx.muzzleFlash(m.x, m.y, this.aim);
-          ctx.sfx('dmr');
-          this.recoil = 4;
-        }
-        return false;
+  /** Re-read the water state and react to entering or leaving it. */
+  private updateWater(): void {
+    const b = this.arcadeBody;
+    const prev = this.water;
+    const next = waterAt(
+      { left: b.left, right: b.right, top: b.top, bottom: b.bottom },
+      this.world.water,
+    );
+    this.water = next;
+    const fx = this.world.fx;
+    if (!prev.inWater && next.inWater) {
+      // entry: splash scaled by impact speed, and the water soaks up most of the fall
+      const speed = Math.abs(b.velocity.y);
+      fx.splash(this.x, next.surfaceY, speed / TUNING.water.bigSplashSpeed);
+      sfx.splash(speed > TUNING.water.bigSplashSpeed);
+      b.velocity.y *= TUNING.water.entrySpeedKeep;
+      this.pounding = false;
+      this.slideMs = 0;
+      this.jumpCtl.clear();
+    } else if (prev.inWater && !next.inWater) {
+      fx.splash(this.x, prev.surfaceY, 0.25);
+      this.dripMs = 1300;
     }
+    if (!prev.submerged && next.submerged) fx.bubbles(this.x, this.y - 6, 5);
   }
 
-  private shoot(ctx: PlayerContext): void {
-    const w = this.op.weapon;
-    const m = this.muzzle();
-    const angle = this.aim + (Math.random() * 2 - 1) * w.spread;
-    ctx.fire(m.x, m.y, angle, {
-      texture: `bullet_${w.tracer}`,
-      speed: TUNING.bullet.playerSpeed * w.speedScale,
-      damage: w.damage,
-      pierce: w.pierce,
+  /** Fixed-step animation update (after physics). */
+  stepAnim(dtMs: number): void {
+    const b = this.arcadeBody;
+    const grounded = this.grounded;
+    if (!this.wasGrounded && grounded && !this.inWater && this.fallSpeed > 120) {
+      const strength = this.fallSpeed / TUNING.hardLandingSpeed;
+      this.rig.land(strength);
+      if (strength > 0.7) this.world.fx.dust(this.x, this.feetY, Math.round(4 + strength * 5));
+    }
+    this.fallSpeed = grounded ? 0 : Math.max(0, b.velocity.y);
+    this.wasGrounded = grounded;
+    this.anim.step(dtMs, {
+      grounded,
+      vx: b.velocity.x,
+      vy: b.velocity.y,
+      runSpeed: this.def.runSpeed,
+      crouch: this.crouching,
+      sliding: this.slideMs > 0,
+      inWater: this.inWater,
+      submerged: this.submerged,
+      climbing: this.climb !== null,
+      onRope: this.onRope,
+      dead: this.dead,
+      victory: this.victory,
+      hurt: this.hurtPending,
     });
-    ctx.muzzleFlash(m.x, m.y, this.aim);
-    ctx.sfx(w.tracer);
-    this.recoil = w.tracer === 'dmr' ? 4 : 2;
+    this.hurtPending = false;
   }
 
-  /** After physics: frame, flip, arm, blink. */
-  sync(dt: number, flashing: boolean): void {
-    if (!this.alive) return;
-    const id = this.op.id;
-    const body = this.pbody;
-    this.setFlipX(this.facing < 0);
-    if (!this.grounded && !this.crouching) {
-      this.anims.stop();
-      this.setFrame(body.velocity.y < 0 ? 'jump' : 'fall');
-    } else if (this.crouching) {
-      this.anims.stop();
-      this.setFrame('crouch');
-    } else if (Math.abs(body.velocity.x) > 30) {
-      if (this.anims.currentAnim?.key !== `op_${id}_run` || !this.anims.isPlaying) this.play(`op_${id}_run`);
-    } else if (this.anims.currentAnim?.key !== `op_${id}_idle` || !this.anims.isPlaying) {
-      this.play(`op_${id}_idle`);
+  /** Per-frame visual sync: rig pose, blink while invulnerable, drips, shadow, water tint. */
+  syncVisuals(frameMs: number, flashing: boolean): void {
+    const a = this.arsenal;
+    const blocked = !!a && this.submerged && a.current.underwater === 'none';
+    this.rig.update(
+      frameMs,
+      {
+        state: this.anim.state,
+        stateMs: this.anim.timeMs,
+        vx: this.arcadeBody.velocity.x,
+        vy: this.arcadeBody.velocity.y,
+        runSpeed: this.def.runSpeed,
+        aim: this.aim.dir,
+        facing: this.facing,
+        armReady: !blocked && !this.climbing,
+        reload: a?.reloadProgress ?? null,
+        swimDir: this.swimDir,
+      },
+      this.x,
+      this.feetY,
+    );
+    this.rig.setVisible(this.shown);
+    if (this.invulnMs > 0 && !this.dead) {
+      this.rig.setAlpha(flashing ? (Math.floor(this.invulnMs / 60) % 2 === 0 ? 0.35 : 1) : 0.6);
+    } else {
+      this.rig.setAlpha(1);
     }
-
-    const s = this.shoulder();
-    const right = this.facing > 0;
-    const back = this.recoil;
-    this.arm
-      .setTexture(right ? `arm_${id}_r` : `arm_${id}_l`)
-      .setOrigin(ARM.pivotX / ARM.w, (right ? ARM.pivotY : ARM.h - ARM.pivotY) / ARM.h)
-      .setPosition(s.x - Math.cos(this.aim) * back, s.y - Math.sin(this.aim) * back)
-      .setRotation(this.aim);
-
-    this.blink += dt;
-    const a = this.invuln > 0 ? (flashing ? (Math.floor(this.blink * 20) % 2 ? 0.35 : 1) : 0.6) : 1;
-    this.setAlpha(a);
-    this.arm.setAlpha(a);
+    this.rig.setTint(this.submerged ? 0x9fc6d6 : null);
+    this.world.fx.placeShadow(
+      this.shadow,
+      this.x,
+      this.feetY,
+      16,
+      !this.shown || this.inWater || this.onRope,
+    );
+    if (this.dripMs > 0) {
+      this.dripMs -= frameMs;
+      if (Math.random() < frameMs / 140)
+        this.world.fx.drip(this.x + (Math.random() * 8 - 4), this.y + 2);
+    }
   }
 
-  destroyAll(): void {
-    this.arm.destroy();
-    this.destroy();
+  respawnAt(x: number, feetY: number): void {
+    this.arcadeBody.enable = true;
+    this.arcadeBody.reset(x, feetY - 10);
+    this.arcadeBody.setVelocity(0, 0);
+    this.arcadeBody.setAllowGravity(true);
+    this.slideMs = 0;
+    this.surgeMs = 0;
+    this.pounding = false;
+    this.crouching = false;
+    this.climb = null;
+    this.waterJumpMs = 0;
+    this.water = DRY;
+    this.dead = false;
+    this.setStanding();
+    this.jumpCtl.clear();
+    this.anim.reset('idle');
   }
-}
 
-function approach(v: number, target: number, step: number): number {
-  if (v < target) return Math.min(target, v + step);
-  if (v > target) return Math.max(target, v - step);
-  return v;
+  /** Place the operator at a feet position without physics (insertion rope). */
+  placeAt(x: number, feetY: number): void {
+    this.arcadeBody.reset(x, feetY - 10);
+    this.arcadeBody.setVelocity(0, 0);
+  }
+
+  override destroy(fromScene?: boolean): void {
+    this.rig.destroy();
+    this.shadow.destroy();
+    super.destroy(fromScene);
+  }
 }
