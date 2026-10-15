@@ -520,12 +520,41 @@ try {
       const errs = errorsOf(page);
       await page.goto(`${BASE}?autostart=1&debug=1${query}`);
       await page.waitForFunction(() => window.__hotRelay?.state?.detail, null, { timeout: 15000 });
-      await sleep(3000);
-      const s = await state(page);
+      await sleep(400);
       const v = await page.evaluate((k) => window.__hotRelay.debug.visibleByTexture(k), keys);
+      // informational fps sample inside the arena (the heaviest part of the stage): 4 enemies
+      // drop in, the player stands invulnerable for ~4 s
+      await page.evaluate(() => {
+        window.__hotRelay.debug.setInvulnerable(20000);
+        window.__hotRelay.debug.teleport(3700 + 352, 240);
+      });
+      await sleep(1500);
+      const fps = await page.evaluate(
+        () =>
+          new Promise((res) => {
+            const d = [];
+            let last = performance.now();
+            const t0 = last;
+            const f = (t) => {
+              d.push(t - last);
+              last = t;
+              if (t - t0 < 4000) requestAnimationFrame(f);
+              else {
+                const x = d
+                  .slice(1)
+                  .map((ms) => 1000 / ms)
+                  .sort((p, q) => p - q);
+                const at = (p) => Math.round(x[Math.floor(p * (x.length - 1))] * 10) / 10;
+                res({ p50: at(0.5), p10: at(0.1) });
+              }
+            };
+            requestAnimationFrame(f);
+          }),
+      );
+      const s = await state(page);
       if (query.includes('low')) await page.screenshot({ path: `${OUT}/17b-detail-low.png` });
       await ctx.close();
-      return { detail: s.detail, v, errs, fps: s.fps };
+      return { detail: s.detail, v, errs, fps };
     };
     const hi = await visible('&detail=high');
     const lo = await visible('&detail=low');
@@ -544,9 +573,9 @@ try {
         lo.errs.length === 0,
       `high ${fmt(hi.v)} | low ${fmt(lo.v)}`,
     );
-    // informational: stage fps standing at the start for ~3 s at each level
+    // informational: fps in the arena at each level
     console.log(
-      `INFO  stage fps standing — high p50 ${hi.fps.p50} p10 ${hi.fps.p10} | low p50 ${lo.fps.p50} p10 ${lo.fps.p10}`,
+      `INFO  arena fps — high p50 ${hi.fps.p50} p10 ${hi.fps.p10} | low p50 ${lo.fps.p50} p10 ${lo.fps.p10}`,
     );
   }
 
