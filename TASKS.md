@@ -25,7 +25,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 
 ## Now
 
-- **Ongoing:** SETUP-02 (needs your GitHub repo), TEST-01 (needs 3 real devices — now also covers the character rigs, see PERF-01)
+- **Ongoing:** SETUP-02 (owner must enable Pages), PERF-01 (low-detail mode), TEST-01 (needs 3 real devices — now also covers the character rigs, see PERF-01)
 - **Next up:** PERF-01 (measure on real phones), CHAR-16 (second water enemy pass), RES-02…RES-07, TEST-02/03 playtests
 - **Current gate:** G3 prototype + character/swimming/insertion vertical slice → G4 playtests
 - **Blocked:** H2 and H4 need 15–20 real testers (RES-13)
@@ -58,7 +58,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 ## SETUP — Project and tooling
 
 - [x] SETUP-01 Repo: Phaser 4 + TypeScript + Vite (G3) (done 2026-10-15)
-- [~] SETUP-02 GitHub repo + auto-deploy to a free static host (G3) — CI + Pages workflow written; needs your GitHub repo (see README)
+- [~] SETUP-02 GitHub repo + auto-deploy to a free static host (G3) — pushed to github.com/TimzonaTimothy/Hot-Relay (branch `vertical-slice`); CI runs on PRs; Pages deploy needs the repo admin to set Pages → Source: GitHub Actions (private repo: paid plan) and merge to main
 - [x] SETUP-03 ESLint + Prettier + strict tsconfig (G3) (done 2026-10-15)
 - [x] SETUP-04 Folder structure: `scenes/`, `entities/`, `systems/`, `data/`, `ui/` (G3) (done 2026-10-15)
 - [ ] SETUP-05 Asset pipeline: sprite atlases, Tiled JSON loading (G3) — started: placeholder textures generated in code with stable keys; atlas + Tiled loader still to do
@@ -124,7 +124,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] CHAR-15 Stable side camera with ground anchor and water framing (G3) (done 2026-10-15)
 - [ ] CHAR-16 Water combat pass after playtests: eel tuning, more underwater threats (G5)
 - [ ] CHAR-17 Replace procedural poses with painted parts / hand-keyed animation (ART) (G5)
-- [ ] PERF-01 Measure stage + stress on 3 real phones; if below target add a low-detail setting (G4) — headless software GL: stage ~22 fps vs ~55 at Gate 3, stress ~46 vs 60; cost is textured fill (parallax, rigs), not CPU
+- [~] PERF-01 Measure stage + stress on 3 real phones; if below target add a low-detail setting (G4) — headless software GL: stage ~22 fps vs ~55 at Gate 3, stress ~46 vs 60; cost is textured fill (parallax, rigs), not CPU
 
 ## ENEMY — Enemies
 
