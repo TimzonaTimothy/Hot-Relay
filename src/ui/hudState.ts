@@ -86,6 +86,8 @@ export const hud: HudState = {
 /** Game-wide event names (emitted on game.events). */
 export const HUD_EVENTS = {
   callout: 'hud-callout',
+  /** Small, quiet notice (e.g. 'Detail lowered'), separate from the big callout. */
+  notice: 'hud-notice',
   retry: 'hud-retry',
   skip: 'hud-skip',
 } as const;

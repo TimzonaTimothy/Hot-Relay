@@ -9,50 +9,81 @@ function feed(auto: AutoDetail, fps: number, ms: number): string {
   return level;
 }
 
-describe('AutoDetail (PERF-01)', () => {
-  it('stays high while sampling the first 4 s', () => {
+const W = AUTO_DETAIL.windowMs;
+
+describe('AutoDetail rolling window (PERF-01)', () => {
+  it('stays high until a full 5 s window has been seen, even when slow', () => {
     const a = new AutoDetail();
-    expect(feed(a, 20, AUTO_DETAIL.windowMs - 200)).toBe('high');
+    expect(feed(a, 20, W - 300)).toBe('high');
     expect(a.decision).toBeNull();
   });
 
-  it('drops to low when the median is below 50 fps', () => {
+  it('lowers once a full window has a median below 50 fps', () => {
     const a = new AutoDetail();
-    expect(feed(a, 22, AUTO_DETAIL.windowMs + 100)).toBe('low');
+    expect(feed(a, 22, W + 300)).toBe('low');
+    expect(a.decision).toBe('low');
+    expect(a.medianFps).toBeLessThan(50);
+  });
+
+  it('keeps high at a steady 50 fps or more', () => {
+    for (const fps of [50, 60, 120]) {
+      const a = new AutoDetail();
+      expect(feed(a, fps, 60_000)).toBe('high');
+      expect(a.decision).toBeNull();
+    }
+  });
+
+  it('catches a slowdown late in the stage, not just at the start', () => {
+    const a = new AutoDetail();
+    expect(feed(a, 60, 40_000)).toBe('high'); // cheap opening section
+    expect(feed(a, 60, 2_000)).toBe('high');
+    expect(feed(a, 25, 2_000)).toBe('high'); // window still mostly fast frames
+    expect(feed(a, 25, 2_000)).toBe('low'); // now most of the last 5 s is slow
+  });
+
+  it('ignores a short dip that never makes up half the window', () => {
+    const a = new AutoDetail();
+    for (let i = 0; i < 20; i++) {
+      feed(a, 60, 4_000);
+      feed(a, 20, 1_000);
+    }
+    expect(a.decision).toBeNull();
+  });
+
+  it('uses the median, so hitches do not lower detail', () => {
+    const a = new AutoDetail();
+    for (let i = 0; i < 300; i++) {
+      a.addFrame(1000 / 60);
+      if (i % 10 === 0) a.addFrame(120); // 10% long frames
+    }
+    expect(a.decision).toBeNull();
+  });
+
+  it('never switches back up, even after clearing the window', () => {
+    const a = new AutoDetail();
+    feed(a, 30, W + 300);
+    expect(feed(a, 60, 30_000)).toBe('low');
+    a.clearWindow();
+    expect(feed(a, 60, 30_000)).toBe('low');
     expect(a.decision).toBe('low');
   });
 
-  it('keeps high at 50 fps or more', () => {
-    const a = new AutoDetail();
-    expect(feed(a, 60, AUTO_DETAIL.windowMs + 100)).toBe('high');
-    expect(a.decision).toBe('high');
-    const b = new AutoDetail();
-    expect(feed(b, 50, AUTO_DETAIL.windowMs + 100)).toBe('high');
-  });
-
-  it('uses the median, so a few long hitches do not force low', () => {
-    const a = new AutoDetail();
-    a.addFrame(400); // loading hitch
-    a.addFrame(250);
-    expect(feed(a, 60, AUTO_DETAIL.windowMs)).toBe('high');
-  });
-
-  it('decides once and does not switch back up', () => {
-    const a = new AutoDetail();
-    feed(a, 30, AUTO_DETAIL.windowMs + 100);
-    expect(feed(a, 60, 10_000)).toBe('low');
-  });
-
-  it('ignores bad frame times and starts over on reset', () => {
+  it('ignores bad and very long frames, so one stall cannot fill the window', () => {
     const a = new AutoDetail();
     a.addFrame(NaN);
     a.addFrame(-5);
     a.addFrame(0);
+    a.addFrame(8000); // returning from a background tab
+    expect(feed(a, 60, 100)).toBe('high');
     expect(a.decision).toBeNull();
-    feed(a, 30, AUTO_DETAIL.windowMs + 100);
-    a.reset();
-    expect(a.decision).toBeNull();
-    expect(feed(a, 60, AUTO_DETAIL.windowMs + 100)).toBe('high');
+  });
+
+  it('clearing the window restarts the 5 s count when not yet lowered', () => {
+    const a = new AutoDetail();
+    feed(a, 20, W - 500);
+    a.clearWindow();
+    expect(feed(a, 20, W - 500)).toBe('high');
+    expect(feed(a, 20, 1_000)).toBe('low');
   });
 });
 

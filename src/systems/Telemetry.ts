@@ -66,6 +66,7 @@ declare global {
         clearEnemies(): void;
         /** Visible objects per texture key (PERF-01 checks). */
         visibleByTexture(keys: string[]): Record<string, number>;
+        feedAutoDetail(fps: number, ms: number): void;
         /** The live stage scene, for profiling from the console. */
         scene: unknown;
       };

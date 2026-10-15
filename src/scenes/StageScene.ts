@@ -53,6 +53,11 @@ import { InsertionCinematic } from '../stage/Insertion';
 import { ART_RES, paintStage } from '../art/stageArt';
 import { FX_RES } from '../art/fx';
 
+/** Auto-detail watcher shared by every stage run this session (PERF-01). */
+const sessionAutoDetail = new AutoDetail();
+/** The 'Detail lowered' notice is shown once per session. */
+let autoNoticeShown = false;
+
 type StageStatus = 'playing' | 'squadDown' | 'clear';
 
 interface ArenaRuntime {
@@ -128,9 +133,11 @@ export class StageScene extends Phaser.Scene {
 
   private fixed = new FixedStep(TUNING.stepMs, TUNING.maxFrameMs);
   private fps = new FpsMeter(600);
-  private autoDetail = new AutoDetail();
+  /** Session-wide, so a lowered detail survives retries and restarts. */
+  private readonly autoDetail = sessionAutoDetail;
   /** Level currently drawn; null until the first frame applies it. */
   private detail: DetailLevel | null = null;
+  private detailNotices = 0;
   private hitStopMs = 0;
   private status: StageStatus = 'playing';
   private timeMs = 0;
@@ -170,7 +177,7 @@ export class StageScene extends Phaser.Scene {
     this.wasSubmerged = false;
     this.fixed.reset();
     this.fps.reset();
-    this.autoDetail.reset();
+    this.autoDetail.clearWindow();
     this.detail = null;
   }
 
@@ -532,11 +539,21 @@ export class StageScene extends Phaser.Scene {
   // ---------------------------------------------------------------- detail (PERF-01)
 
   private updateDetail(delta: number): void {
-    // Sample gameplay only: the insertion cinematic draws far less than the stage does.
-    const playing = !this.cinematic || this.cinematic.controlReturned;
+    // Gameplay frames only: not the insertion cinematic, hit-stop or end-of-run screens
+    // (the scene doesn't update at all while paused).
+    const playing =
+      this.status === 'playing' &&
+      this.hitStopMs <= 0 &&
+      (!this.cinematic || this.cinematic.controlReturned);
     const auto = playing ? this.autoDetail.addFrame(delta) : this.autoDetail.decision;
+    const setting = FLAGS.detail ?? saves.data.settings.detail;
     const level = resolveDetail(saves.data.settings.detail, FLAGS.detail, auto);
     if (level !== this.detail) this.applyDetail(level);
+    if (setting === 'auto' && auto === 'low' && !autoNoticeShown) {
+      autoNoticeShown = true;
+      this.game.events.emit(HUD_EVENTS.notice, 'Detail lowered');
+      this.detailNotices++;
+    }
   }
 
   /** Low hides the bg-mid/bg-near parallax, water light shafts, grass tufts and shadows. */
@@ -1468,6 +1485,7 @@ export class StageScene extends Phaser.Scene {
       fps: this.fps.summary(),
       detail: this.detail,
       autoDetail: this.autoDetail.decision,
+      detailNotices: this.detailNotices,
     };
   }
 
@@ -1475,6 +1493,10 @@ export class StageScene extends Phaser.Scene {
   private exposeDebug(): void {
     if (!window.__hotRelay) return;
     window.__hotRelay.debug = {
+      /** Feed the Auto-detail watcher synthetic frames (PERF-01 checks). */
+      feedAutoDetail: (fps: number, ms: number) => {
+        for (let t = 0; t < ms; t += 1000 / fps) this.autoDetail.addFrame(1000 / fps);
+      },
       visibleByTexture: (keys: string[]) => {
         const out: Record<string, number> = Object.fromEntries(keys.map((k) => [k, 0]));
         for (const o of this.children.list) {

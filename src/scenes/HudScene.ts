@@ -38,6 +38,7 @@ export class HudScene extends Phaser.Scene {
   private timer!: Phaser.GameObjects.Text;
   private fpsText!: Phaser.GameObjects.Text;
   private callout!: Phaser.GameObjects.Text;
+  private notice!: Phaser.GameObjects.Text;
   private wName!: Phaser.GameObjects.Text;
   private wMag!: Phaser.GameObjects.Text;
   private wInfo!: Phaser.GameObjects.Text;
@@ -107,6 +108,11 @@ export class HudScene extends Phaser.Scene {
       .text(CANVAS_W / 2, 200, '', txt('display', 30, CSSC.bone))
       .setOrigin(0.5)
       .setStroke(CSSC.ink, 8)
+      .setAlpha(0);
+    this.notice = this.add
+      .text(CANVAS_W / 2, CANVAS_H - 18, '', txt('hud', 16, CSSC.muted, { letterSpacing: 1 }))
+      .setOrigin(0.5, 1)
+      .setStroke(CSSC.ink, 4)
       .setAlpha(0);
 
     // squad down overlay
@@ -189,8 +195,10 @@ export class HudScene extends Phaser.Scene {
     });
 
     this.game.events.on(HUD_EVENTS.callout, this.showCallout, this);
+    this.game.events.on(HUD_EVENTS.notice, this.showNotice, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.game.events.off(HUD_EVENTS.callout, this.showCallout, this);
+      this.game.events.off(HUD_EVENTS.notice, this.showNotice, this);
       this.touch.destroy();
     });
   }
@@ -205,6 +213,12 @@ export class HudScene extends Phaser.Scene {
     this.tweens.killTweensOf(this.callout);
     this.tweens.add({ targets: this.callout, scale: 1, duration: 140, ease: 'Back.easeOut' });
     this.tweens.add({ targets: this.callout, alpha: 0, y: 184, delay: 1000, duration: 400 });
+  }
+
+  private showNotice(text: string): void {
+    this.tweens.killTweensOf(this.notice);
+    this.notice.setText(text.toUpperCase()).setAlpha(1);
+    this.tweens.add({ targets: this.notice, alpha: 0, delay: 2500, duration: 500 });
   }
 
   private touchVisible(): boolean {

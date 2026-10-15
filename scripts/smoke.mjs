@@ -579,6 +579,35 @@ try {
     );
   }
 
+  // 6c. Auto detail (PERF-01): a slow 5 s window lowers detail once, with a notice
+  {
+    const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+    const page = await ctx.newPage();
+    const errs = errorsOf(page);
+    await page.goto(`${BASE}?autostart=1&debug=1`);
+    await page.waitForFunction(() => window.__hotRelay?.state?.detail, null, { timeout: 15000 });
+    await sleep(300);
+    const before = await state(page);
+    await page.evaluate(() => window.__hotRelay.debug.feedAutoDetail(20, 6000));
+    await sleep(300);
+    const after = await state(page);
+    await page.screenshot({ path: `${OUT}/17c-detail-lowered.png` });
+    await page.evaluate(() => window.__hotRelay.debug.feedAutoDetail(60, 20000));
+    await sleep(300);
+    const later = await state(page);
+    check(
+      'Auto lowers detail once on a slow window and stays low',
+      before.detail === 'high' &&
+        after.detail === 'low' &&
+        after.detailNotices === 1 &&
+        later.detail === 'low' &&
+        later.detailNotices === 1 &&
+        errs.length === 0,
+      `before ${before.detail} → after ${after.detail} (notices ${after.detailNotices}) → later ${later.detail}`,
+    );
+    await ctx.close();
+  }
+
   // 7. Stress test (H10) — headless software rendering, so treat the number as a floor only
   {
     const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
