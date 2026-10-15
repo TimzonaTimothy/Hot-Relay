@@ -241,8 +241,18 @@ try {
           await page.keyboard.up('KeyZ');
         }
       }
-      // inside the arena: stop and fight until it is clear
-      if (s.x > 3240 + D && s.x < 3600 + D && s.arenaLive > 0) {
+      // pinned against the arena cover crate (3250–3282 + D) on the ground: hop over it with
+      // right held. A single missed jump in the window above used to strand the bot here.
+      if (s.grounded && s.feetY >= 236 && s.x >= 3232 + D && s.x < 3250 + D) {
+        await page.keyboard.up('ArrowUp');
+        await page.keyboard.down('ArrowRight');
+        await page.keyboard.down('KeyZ');
+        await sleep(300);
+        await page.keyboard.up('KeyZ');
+        continue;
+      }
+      // inside the arena, past the crate: stop and fight until it is clear
+      if (s.x > 3282 + D && s.x < 3600 + D && s.arenaLive > 0) {
         await page.keyboard.up('ArrowRight');
         await page.keyboard.down('ArrowUp');
         await sleep(300);
@@ -510,12 +520,12 @@ try {
       const errs = errorsOf(page);
       await page.goto(`${BASE}?autostart=1&debug=1${query}`);
       await page.waitForFunction(() => window.__hotRelay?.state?.detail, null, { timeout: 15000 });
-      await sleep(400);
+      await sleep(3000);
       const s = await state(page);
       const v = await page.evaluate((k) => window.__hotRelay.debug.visibleByTexture(k), keys);
       if (query.includes('low')) await page.screenshot({ path: `${OUT}/17b-detail-low.png` });
       await ctx.close();
-      return { detail: s.detail, v, errs };
+      return { detail: s.detail, v, errs, fps: s.fps };
     };
     const hi = await visible('&detail=high');
     const lo = await visible('&detail=low');
@@ -533,6 +543,10 @@ try {
         hi.v['fx-tuft'] > 0 &&
         lo.errs.length === 0,
       `high ${fmt(hi.v)} | low ${fmt(lo.v)}`,
+    );
+    // informational: stage fps standing at the start for ~3 s at each level
+    console.log(
+      `INFO  stage fps standing — high p50 ${hi.fps.p50} p10 ${hi.fps.p10} | low p50 ${lo.fps.p50} p10 ${lo.fps.p10}`,
     );
   }
 
