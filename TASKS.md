@@ -25,7 +25,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 
 ## Now
 
-- **Ongoing:** SETUP-02 (owner must enable Pages), PERF-01 (low-detail mode), TEST-01 (needs 3 real devices — now also covers the character rigs, see PERF-01)
+- **Ongoing:** SETUP-02 (owner must enable Pages + merge PR #2), PERF-01 (low-detail mode done; phone numbers to do), TEST-01 (needs 3 real devices — now also covers the character rigs, see PERF-01)
 - **Next up:** PERF-01 real-phone numbers (try `?detail=low`), CHAR-16 (second water enemy pass), RES-02…RES-07, TEST-02/03 playtests
 - **Current gate:** G3 prototype + character/swimming/insertion vertical slice → G4 playtests
 - **Blocked:** H2 and H4 need 15–20 real testers (RES-13)
@@ -34,6 +34,8 @@ Keep this file in the repo root so Claude Code can read and update it.
   (surface, diving, buoyancy, air, drowning, ledge climb), a flooded basin with mines, an eel drone and
   a secret cache, the helicopter insertion cinematic, squad select, themed HUD/pause/results.
   62 unit tests and 32 smoke checks pass. Placeholder art and audio are listed in ASSETS.md.
+- **This session (2026-10-15):** imported to github.com/TimzonaTimothy/Hot-Relay (PR #2), PERF-01 low-detail
+  mode, fixed a flaky smoke-test bot at the arena crate. 71 unit tests, 33 smoke checks pass locally and on CI.
 
 ---
 
@@ -124,7 +126,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] CHAR-15 Stable side camera with ground anchor and water framing (G3) (done 2026-10-15)
 - [ ] CHAR-16 Water combat pass after playtests: eel tuning, more underwater threats (G5)
 - [ ] CHAR-17 Replace procedural poses with painted parts / hand-keyed animation (ART) (G5)
-- [~] PERF-01 Measure stage + stress on 3 real phones; if below target add a low-detail setting (G4) — headless software GL: stage ~22 fps vs ~55 at Gate 3, stress ~46 vs 60; cost is textured fill (parallax, rigs), not CPU. **Low-detail mode done (2026-10-15):** Detail Auto/High/Low in Settings and Pause, `?detail=` flag; Low hides bg-mid/bg-near, water light shafts, grass tufts, contact shadows; Auto drops to Low if the median fps over the first 4 s is below 50 (`systems/detail.ts`, 9 unit tests, e2e check). Measured on an Apple-silicon Mac (headless SwiftShader): capped at 60 fps before and after, both stage and stress; uncapped, Low is ~16% faster than High on the stage (114 vs 98, 96 vs 83 fps median in two runs), no change on stress (only shadows apply there). Still to do: measure on 3 real phones
+- [~] PERF-01 Measure stage + stress on 3 real phones; if below target add a low-detail setting (G4) — **Low-detail mode done (2026-10-15):** Detail Auto/High/Low in Settings and Pause, `?detail=` flag; Low hides bg-mid/bg-near, water light shafts, grass tufts, contact shadows; Auto drops to Low if the median fps over the first 4 s of play (after the insertion) is below 50 (`systems/detail.ts`, 9 unit tests, e2e check). Measured: Apple-silicon Mac (headless SwiftShader) is capped at 60 fps before and after on stage and stress; uncapped, Low is ~16% faster than High on the stage, no change on stress. GitHub runner (no GPU): bot run 21–25 fps median; arena High p50 20 / p10 15 vs Low p50 20 / p10 20; stress 43–60 fps (varies by runner). **Finding:** Low smooths the slow frames but does not lift the median on the slowest hardware, so the cut-out rigs are likely the main cost there; and the stage start is cheap (60 fps on CI), so Auto's first-4-s window keeps High on machines that slow down later. Next: measure on 3 real phones; consider a rolling Auto window and cheaper rigs (e.g. baked rig frames) if phones are below target
 
 ## ENEMY — Enemies
 
