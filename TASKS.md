@@ -56,7 +56,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 ## SETUP — Project and tooling
 
 - [x] SETUP-01 Repo: Phaser 4 + TypeScript + Vite (G3) (done 2026-10-15)
-- [~] SETUP-02 GitHub repo + auto-deploy to a free static host (G3) — private repo created: github.com/TimzonaTimothy/Hot-Relay; CI + Pages workflow still to add
+- [~] SETUP-02 GitHub repo + auto-deploy to a free static host (G3) — private repo created: github.com/TimzonaTimothy/Hot-Relay; CI + Pages workflow added (.github/workflows/deploy.yml); owner must enable Pages (Settings → Pages → Source: GitHub Actions; private repos need a paid plan)
 - [x] SETUP-03 ESLint + Prettier + strict tsconfig (G3) (done 2026-10-15)
 - [x] SETUP-04 Folder structure: `scenes/`, `entities/`, `systems/`, `data/`, `ui/` (G3) (done 2026-10-15)
 - [ ] SETUP-05 Asset pipeline: sprite atlases, Tiled JSON loading (G3) — started: placeholder textures generated in code with stable keys; atlas + Tiled loader still to do
