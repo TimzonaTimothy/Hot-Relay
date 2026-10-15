@@ -2,8 +2,9 @@
  * Render detail (PERF-01). Pure logic: which detail level to draw, and the Auto decision.
  *   high → everything
  *   low  → no bg-mid / bg-near parallax, no water light shafts, no grass tufts, no contact shadows
- * Auto starts on high and drops to low if the median fps over the first few seconds of the
- * stage is below the threshold. It decides once per stage start and never switches back up.
+ * Auto starts on high and drops to low if the median fps over the first few seconds of play
+ * (the stage feeds frames once the player has control, not during the insertion) is below the
+ * threshold. It decides once per stage start and never switches back up.
  */
 import { FpsMeter } from './FpsMeter';
 

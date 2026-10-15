@@ -532,7 +532,9 @@ export class StageScene extends Phaser.Scene {
   // ---------------------------------------------------------------- detail (PERF-01)
 
   private updateDetail(delta: number): void {
-    const auto = this.autoDetail.addFrame(delta);
+    // Sample gameplay only: the insertion cinematic draws far less than the stage does.
+    const playing = !this.cinematic || this.cinematic.controlReturned;
+    const auto = playing ? this.autoDetail.addFrame(delta) : this.autoDetail.decision;
     const level = resolveDetail(saves.data.settings.detail, FLAGS.detail, auto);
     if (level !== this.detail) this.applyDetail(level);
   }
