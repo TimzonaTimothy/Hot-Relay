@@ -113,6 +113,8 @@ export class PreloadScene extends Phaser.Scene {
       repeat: -1,
     });
 
+    this.addCanvas('shield_riot', paintRiotShield());
+
     // environment layers
     this.addCanvas('sky', paintSky(VIEW_W, VIEW_H));
     this.addCanvas('clouds', paintClouds(1920, 300));
@@ -141,4 +143,27 @@ export class PreloadScene extends Phaser.Scene {
       hideOnComplete: true,
     });
   }
+}
+
+/** Riot shield, facing right: tall slab with a visor slit and a red stripe. */
+function paintRiotShield(): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.width = 20;
+  cv.height = 62;
+  const c = cv.getContext('2d')!;
+  c.fillStyle = '#1f2226';
+  c.beginPath();
+  c.roundRect(0, 0, 20, 62, 5);
+  c.fill();
+  c.fillStyle = '#4b5058';
+  c.beginPath();
+  c.roundRect(2, 2, 16, 58, 4);
+  c.fill();
+  c.fillStyle = '#6f757e';
+  c.fillRect(13, 4, 3, 54);
+  c.fillStyle = '#9fd4ff';
+  c.fillRect(4, 12, 12, 4);
+  c.fillStyle = '#c8452f';
+  c.fillRect(2, 40, 16, 4);
+  return cv;
 }

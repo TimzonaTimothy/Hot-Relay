@@ -4,6 +4,7 @@ const H = 540;
 const solid = (x: number, y: number, w: number) => ({ x, y, w, h: H - y });
 const plat = (x: number, y: number, w: number) => ({ x, y, w, h: 22 });
 const r = (x: number, y: number): EnemySpawn => ({ kind: 'rifleman', x, y });
+const riot = (x: number, y: number): EnemySpawn => ({ kind: 'riot', x, y });
 
 /**
  * Stage 1 — Verdant Steps. Ruined sandstone walkways over a jungle river.
@@ -53,13 +54,13 @@ export const jungle01: StageDef = {
     r(2120, 315),
     r(2250, 430),
     r(2620, 365),
-    r(2900, 440),
+    riot(2900, 440),
     r(3150, 255),
     r(3260, 440),
     r(3780, 300),
     r(3980, 420),
     r(5520, 290),
-    r(5700, 400),
+    riot(5700, 400),
     r(6280, 310),
     r(6420, 430),
     r(6600, 430),
@@ -71,7 +72,7 @@ export const jungle01: StageDef = {
       right: 5100,
       waves: [
         [r(4400, 320), r(4800, 320), r(4980, 430)],
-        [r(4250, 430), r(4600, 430), r(4780, 320), r(5000, 430)],
+        [riot(4250, 430), r(4600, 430), r(4780, 320), riot(5000, 430)],
       ],
     },
   ],

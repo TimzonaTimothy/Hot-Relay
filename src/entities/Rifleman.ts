@@ -5,22 +5,25 @@ import { ARM, FRAME } from '../art/characters';
 import { rig } from '../art/registry';
 import { Enemy, type EnemyContext } from './Enemy';
 
-const T = TUNING.rifleman;
+export type RiflemanStats = typeof TUNING.rifleman | typeof TUNING.riot;
 const BODY_W = 26;
 const BODY_H = 72;
 
 /** Contractor rifleman: walks into range, flashes a telegraph, fires a 3-round burst. */
 export class Rifleman extends Enemy {
-  readonly score = T.score;
+  readonly score: number;
+  protected readonly t: RiflemanStats;
   private readonly arm: Phaser.GameObjects.Image;
   private readonly glow: Phaser.GameObjects.Image;
-  private aim = Math.PI;
+  protected aim = Math.PI;
   private shots = 0;
   private wait = 0.4;
   private readonly rand: () => number;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, seed: number) {
-    super(scene, x, y, 'rifleman', T.health);
+  constructor(scene: Phaser.Scene, x: number, y: number, seed: number, stats: RiflemanStats = TUNING.rifleman) {
+    super(scene, x, y, 'rifleman', stats.health);
+    this.t = stats;
+    this.score = stats.score;
     this.setOrigin(0.5, FRAME.footY / FRAME.h);
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setSize(BODY_W, BODY_H);
@@ -66,33 +69,33 @@ export class Rifleman extends Enemy {
         this.mode = 'patrol';
         this.facing = dx < 0 ? -1 : 1;
         const grounded = body.blocked.down || body.touching.down;
-        if (Math.abs(dx) > 360 && grounded && ctx.groundAhead(this.x, this.y, this.facing)) {
-          body.setVelocityX(this.facing * T.walkSpeed);
+        if (Math.abs(dx) > this.t.approach && grounded && ctx.groundAhead(this.x, this.y, this.facing)) {
+          body.setVelocityX(this.facing * this.t.walkSpeed);
         }
         this.aim = this.facing > 0 ? 0 : Math.PI;
-        if (this.modeTime > this.wait && dist < T.sightRange) this.setMode('aim');
+        if (this.modeTime > this.wait && dist < this.t.sightRange) this.setMode('aim');
         break;
       }
       case 'aim':
         body.setVelocityX(0);
         this.facing = dx < 0 ? -1 : 1;
         // Track for the first half of the telegraph, then commit so the shot is dodgeable.
-        if (this.modeTime < T.telegraph * 0.55) this.aim = clampAim(toPlayer, this.facing);
-        if (this.modeTime >= T.telegraph) {
+        if (this.modeTime < this.t.telegraph * 0.55) this.aim = clampAim(toPlayer, this.facing);
+        if (this.modeTime >= this.t.telegraph) {
           this.shots = 0;
           this.setMode('burst');
         }
         break;
       case 'burst':
         body.setVelocityX(0);
-        if (this.modeTime >= this.shots * T.burstGap && this.shots < T.burstCount) {
+        if (this.modeTime >= this.shots * this.t.burstGap && this.shots < this.t.burstCount) {
           const m = this.muzzle();
           ctx.fireEnemyBullet(m.x, m.y, this.aim);
           ctx.sfx('enemyShot');
           this.shots++;
         }
-        if (this.shots >= T.burstCount) {
-          this.wait = T.cooldown + this.rand() * 0.8;
+        if (this.shots >= this.t.burstCount) {
+          this.wait = this.t.cooldown + this.rand() * 0.8;
           this.setMode('cooldown');
         }
         break;
@@ -144,7 +147,7 @@ export class Rifleman extends Enemy {
     if (aiming) {
       const m = this.muzzle();
       const pulse = ctx.flashing ? 0.55 + 0.45 * Math.sin(this.modeTime * 40) : 0.8;
-      const grow = 0.6 + (this.modeTime / T.telegraph) * 0.8;
+      const grow = 0.6 + (this.modeTime / this.t.telegraph) * 0.8;
       this.glow.setPosition(m.x, m.y).setAlpha(pulse).setScale(grow);
     }
   }

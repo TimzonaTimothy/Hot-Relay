@@ -6,7 +6,7 @@ export interface Rect {
   h: number;
 }
 
-export type EnemyKind = 'rifleman';
+export type EnemyKind = 'rifleman' | 'riot';
 export type DecorKind = 'palm' | 'fern' | 'pillar';
 
 export interface EnemySpawn {

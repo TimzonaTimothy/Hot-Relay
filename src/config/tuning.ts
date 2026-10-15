@@ -67,6 +67,21 @@ export const TUNING = {
     burstGap: 0.14,
     cooldown: 1.6,
     score: 100,
+    /** Stops walking forward once this close (px). */
+    approach: 360,
+  },
+
+  /** Riot contractor: front shield blocks bullets except while it aims and fires. */
+  riot: {
+    health: 6,
+    walkSpeed: 45,
+    sightRange: 520,
+    telegraph: 0.7,
+    burstCount: 2,
+    burstGap: 0.18,
+    cooldown: 2.2,
+    score: 250,
+    approach: 200,
   },
 
   solo: { lives: 3 },

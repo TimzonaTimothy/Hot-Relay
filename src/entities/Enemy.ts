@@ -51,6 +51,11 @@ export abstract class Enemy extends Phaser.Physics.Arcade.Sprite {
     return false;
   }
 
+  /** True when a player bullet travelling with horizontal velocity `vx` is stopped by armour. */
+  blocks(_vx: number): boolean {
+    return false;
+  }
+
   /** Gameplay step at the fixed rate. */
   abstract tick(dt: number, ctx: EnemyContext): void;
 

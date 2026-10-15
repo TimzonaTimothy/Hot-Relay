@@ -9,6 +9,7 @@ import { Bullet, BulletPool } from '../entities/BulletPool';
 import { Enemy, type EnemyContext } from '../entities/Enemy';
 import { Player, type PlayerContext, type ShotOpts } from '../entities/Player';
 import { Rifleman } from '../entities/Rifleman';
+import { RiotContractor } from '../entities/RiotContractor';
 import { FixedStep } from '../systems/FixedStep';
 import { Squad } from '../systems/Squad';
 import { assistAim } from '../systems/aim';
@@ -297,7 +298,8 @@ export class StageScene extends Phaser.Scene {
   }
 
   private spawnEnemy(e: EnemySpawn, seed: number, dropIn = false): Enemy {
-    const enemy = new Rifleman(this, e.x, dropIn ? -40 - (seed % 3) * 50 : e.y, seed + 1);
+    const y = dropIn ? -40 - (seed % 3) * 50 : e.y;
+    const enemy = e.kind === 'riot' ? new RiotContractor(this, e.x, y, seed + 1) : new Rifleman(this, e.x, y, seed + 1);
     this.enemyGroup.add(enemy);
     (enemy.body as Phaser.Physics.Arcade.Body).setMaxVelocityY(TUNING.maxFall);
     this.enemies.push(enemy);
@@ -678,6 +680,13 @@ export class StageScene extends Phaser.Scene {
   private bulletHitsEnemy(bullet: Bullet, enemy: Enemy): void {
     if (!bullet.active || enemy.dead || bullet.hits.has(enemy)) return;
     bullet.hits.add(enemy);
+    if (enemy.blocks((bullet.body as Phaser.Physics.Arcade.Body).velocity.x)) {
+      // Shields stop piercing rounds too.
+      this.sparks.explode(3, bullet.x, bullet.y);
+      services.sfx.play('armour');
+      bullet.kill();
+      return;
+    }
     if (!this.firstFight) {
       this.firstFight = true;
       services.telemetry.log('first_fight', { t: this.runTime });
