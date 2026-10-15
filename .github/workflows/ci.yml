@@ -28,8 +28,6 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-        env:
-          BASE_PATH: /${{ github.event.repository.name }}/
       - name: Headless smoke test (bot plays the stage, offline launch, touch, stress)
         run: |
           npx playwright install --with-deps chromium
@@ -39,6 +37,12 @@ jobs:
         with:
           name: smoke-screenshots
           path: scripts/out
+      # The smoke test serves dist/ at the root; Pages serves it under /<repo>/.
+      - name: Build for GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        run: npx vite build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
       - uses: actions/upload-pages-artifact@v3
         if: github.ref == 'refs/heads/main'
         with:
