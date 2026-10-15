@@ -11,6 +11,10 @@ import { PART_RES, PARTS, RIG_ATLAS, armKey, type RigId } from '../art/character
 import type { WeaponId } from '../data/weapons';
 import type { AnimState } from '../systems/anim';
 import type { Vec } from '../systems/aim';
+import { FLAGS } from '../systems/flags';
+
+/** ?debug=1&rigs=off: never draw rigs (bodies and logic still run) to measure their cost. */
+const RIGS_HIDDEN = FLAGS.debug && FLAGS.rigsOff;
 
 /** On-screen size of rigs relative to their drawn parts. */
 export const RIG_SCALE = 0.8;
@@ -111,7 +115,7 @@ export class Rig {
       this.arm,
     ]);
     this.root = scene.add.container(0, 0, [this.inner]);
-    this.root.setDepth(depth).setScale(scale);
+    this.root.setDepth(depth).setScale(scale).setVisible(!RIGS_HIDDEN);
     this.layout();
   }
 
@@ -371,7 +375,7 @@ export class Rig {
   }
 
   setVisible(v: boolean): void {
-    this.root.setVisible(v);
+    this.root.setVisible(v && !RIGS_HIDDEN);
   }
 
   setDepth(d: number): void {

@@ -5,6 +5,7 @@
  *   ?stage=stress→ jump straight into the stress scene (TEST-01)
  *   ?squad=a,b,c → pick the squad; ?insertion=play|skip → force or skip the opening cinematic
  *   ?detail=auto|high|low → override the saved Detail setting (PERF-01)
+ *   ?rigs=off    → with ?debug=1 only: hide every character rig, physics keeps running (PERF-01)
  */
 import type { SquadMode } from './Squad';
 import { isDetailSetting, type DetailSetting } from './detail';
@@ -25,5 +26,7 @@ export const FLAGS = {
    */
   insertion: (params.get('insertion') as 'play' | 'skip' | null) ?? null,
   /** ?detail=auto|high|low — overrides the saved Detail setting for this session. */
+  /** ?rigs=off — only honoured with ?debug=1 (see Rig). */
+  rigsOff: params.get('rigs') === 'off',
   detail: ((d) => (isDetailSetting(d) ? d : null))(params.get('detail')) as DetailSetting | null,
 };

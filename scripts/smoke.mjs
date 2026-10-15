@@ -552,7 +552,9 @@ try {
           }),
       );
       const s = await state(page);
-      if (query.includes('low')) await page.screenshot({ path: `${OUT}/17b-detail-low.png` });
+      if (query === '&detail=low') await page.screenshot({ path: `${OUT}/17b-detail-low.png` });
+      if (query === '&detail=high&rigs=off')
+        await page.screenshot({ path: `${OUT}/17d-rigs-off.png` });
       await ctx.close();
       return { detail: s.detail, v, errs, fps };
     };
@@ -576,6 +578,12 @@ try {
     // informational: fps in the arena at each level
     console.log(
       `INFO  arena fps — high p50 ${hi.fps.p50} p10 ${hi.fps.p10} | low p50 ${lo.fps.p50} p10 ${lo.fps.p10}`,
+    );
+    // rig cost: same arena sample with every character rig hidden (?rigs=off, debug only)
+    const hiOff = await visible('&detail=high&rigs=off');
+    const loOff = await visible('&detail=low&rigs=off');
+    console.log(
+      `INFO  arena fps, rigs off — high p50 ${hiOff.fps.p50} p10 ${hiOff.fps.p10} | low p50 ${loOff.fps.p50} p10 ${loOff.fps.p10}`,
     );
   }
 
