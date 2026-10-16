@@ -1,7 +1,9 @@
 /**
  * On-screen touch controls (INPUT-03).
  * Left side: a floating stick that appears where the thumb lands (8-way).
- * Right side: Fire, Jump, Swap and Weapon buttons. Top right: pause.
+ * Right side: a big Fire button, Jump below-left of it (press again in mid-air to double jump)
+ * and the View zoom button beside Jump (UI-11); Swap and Weapon sit above. Top right: pause.
+ * Buttons are hexagonal plates in the HUD theme; they light up while held.
  * The stick is analogue horizontally: a small push walks, a full push runs.
  * Multi-touch: each pointer is tracked separately, so you can run, jump and fire at once.
  */
@@ -9,17 +11,23 @@ import Phaser from 'phaser';
 import { CANVAS_H, CANVAS_W, CSS, FONT } from '../config/constants';
 import { input, type Action } from '../systems/InputManager';
 import { sfx } from '../systems/Sfx';
+import { touchButtonTextures, type ButtonName } from './touchArt';
 
 interface TouchButton {
   action: Action;
   x: number;
   y: number;
   r: number;
-  label: string;
-  circle: Phaser.GameObjects.Arc;
-  text: Phaser.GameObjects.Text;
+  /** Glossy button art; the pause button is a plain circle with a label instead. */
+  image: Phaser.GameObjects.Image | null;
+  /** Idle and pressed texture keys for glossy buttons. */
+  tex: { idle: string; lit: string } | null;
+  circle: Phaser.GameObjects.Arc | null;
+  text: Phaser.GameObjects.Text | null;
   pointerId: number | null;
 }
+
+const IDLE_ALPHA = 0.82;
 
 const STICK_RADIUS = 56;
 const STICK_DEADZONE = 14;
@@ -41,12 +49,11 @@ export class TouchControls {
     this.stickKnob = scene.add.circle(150, CANVAS_H - 140, 24, 0xffffff, 0.3);
     this.container.add([this.stickBase, this.stickKnob]);
 
-    const right = CANVAS_W - 90;
-    const bottom = CANVAS_H - 90;
-    this.addButton('jump', right, bottom, 50, 'JUMP');
-    this.addButton('fire', right - 120, bottom + 10, 50, 'FIRE');
-    this.addButton('swap', right - 30, bottom - 125, 38, 'SWAP');
-    this.addButton('weapon', right - 150, bottom - 105, 32, 'WPN');
+    this.addGlossy('fire', 'fire', CANVAS_W - 102, CANVAS_H - 160, 50);
+    this.addGlossy('jump', 'jump', CANVAS_W - 205, CANVAS_H - 72, 46);
+    this.addGlossy('zoom', 'zoom', CANVAS_W - 310, CANVAS_H - 62, 36);
+    this.addGlossy('swap', 'swap', CANVAS_W - 60, CANVAS_H - 275, 32);
+    this.addGlossy('weapon', 'weapon', CANVAS_W - 170, CANVAS_H - 250, 30);
     this.addButton('pause', CANVAS_W - 40, 40, 24, 'II');
 
     scene.input.on('pointerdown', this.onDown, this);
@@ -54,6 +61,13 @@ export class TouchControls {
     scene.input.on('pointerup', this.onUp, this);
     scene.input.on('pointerupoutside', this.onUp, this);
     this.setVisible(false);
+  }
+
+  private addGlossy(action: Action, look: ButtonName, x: number, y: number, r: number): void {
+    const tex = touchButtonTextures(this.scene, look, r);
+    const image = this.scene.add.image(x, y, tex.idle).setAlpha(IDLE_ALPHA);
+    this.container.add(image);
+    this.buttons.push({ action, x, y, r, image, tex, circle: null, text: null, pointerId: null });
   }
 
   private addButton(action: Action, x: number, y: number, r: number, label: string): void {
@@ -68,7 +82,7 @@ export class TouchControls {
       .setOrigin(0.5)
       .setAlpha(0.8);
     this.container.add([circle, text]);
-    this.buttons.push({ action, x, y, r, label, circle, text, pointerId: null });
+    this.buttons.push({ action, x, y, r, image: null, tex: null, circle, text, pointerId: null });
   }
 
   setVisible(v: boolean): void {
@@ -81,15 +95,24 @@ export class TouchControls {
   setSwapReady(ready: boolean, show: boolean): void {
     const b = this.buttons.find((x) => x.action === 'swap');
     if (!b) return;
-    b.circle.setVisible(show);
-    b.text.setVisible(show);
-    b.circle.setFillStyle(0xffffff, ready ? 0.16 : 0.04);
-    b.text.setAlpha(ready ? 0.9 : 0.35);
+    b.image?.setVisible(show).setAlpha(ready ? IDLE_ALPHA : 0.35);
+  }
+
+  private shown(b: TouchButton): boolean {
+    return (b.image ?? b.circle)?.visible ?? false;
+  }
+
+  private press(b: TouchButton, id: number): void {
+    b.pointerId = id;
+    if (b.tex) b.image?.setTexture(b.tex.lit);
+    b.image?.setAlpha(1).setScale(0.94);
+    b.circle?.setFillStyle(0xffffff, 0.35);
+    input.setTouch(b.action, true);
   }
 
   private hitButton(p: Phaser.Input.Pointer): TouchButton | undefined {
     return this.buttons.find(
-      (b) => b.circle.visible && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) <= b.r + 14,
+      (b) => this.shown(b) && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) <= b.r + 14,
     );
   }
 
@@ -98,9 +121,7 @@ export class TouchControls {
     sfx.unlock();
     const b = this.hitButton(p);
     if (b) {
-      b.pointerId = p.id;
-      b.circle.setFillStyle(0xffffff, 0.35);
-      input.setTouch(b.action, true);
+      this.press(b, p.id);
       return;
     }
     if (p.x < CANVAS_W * 0.45 && this.stickPointer === null) {
@@ -139,11 +160,9 @@ export class TouchControls {
     // sliding a thumb between Fire and Jump works like real buttons
     const owned = this.buttons.find((b) => b.pointerId === p.id);
     const over = this.hitButton(p);
-    if (owned && over && over !== owned && over.action !== 'pause') {
+    if (owned && over && over !== owned && over.action !== 'pause' && over.action !== 'zoom') {
       this.release(owned);
-      over.pointerId = p.id;
-      over.circle.setFillStyle(0xffffff, 0.35);
-      input.setTouch(over.action, true);
+      this.press(over, p.id);
     }
   }
 
@@ -159,7 +178,10 @@ export class TouchControls {
 
   private release(b: TouchButton): void {
     b.pointerId = null;
-    b.circle.setFillStyle(0xffffff, 0.1);
+    // the scene may already be shutting down (destroy → releaseAll)
+    if (b.tex && b.image?.scene) b.image.setTexture(b.tex.idle);
+    b.image?.setScale(1).setAlpha(IDLE_ALPHA); // Swap's ready/dim state is re-applied every frame
+    b.circle?.setFillStyle(0xffffff, 0.1);
     input.setTouch(b.action, false);
   }
 

@@ -4,6 +4,7 @@ import { saves } from '../systems/services';
 import { sfx } from '../systems/Sfx';
 import type { Settings, TouchMode } from '../systems/SaveStore';
 import { DETAIL_SETTINGS } from '../systems/detail';
+import { ZOOM_LEVELS, zoomLabel } from '../systems/viewZoom';
 
 const onOff = (v: boolean) => (v ? 'On' : 'Off');
 
@@ -39,6 +40,14 @@ export function settingsItems(): MenuItem[] {
         const i = DETAIL_SETTINGS.indexOf(s().detail);
         const n = DETAIL_SETTINGS.length;
         void saves.updateSettings({ detail: DETAIL_SETTINGS[(i + dir + n) % n] ?? 'auto' });
+      },
+    },
+    {
+      label: () => `View zoom: ${zoomLabel(s().viewZoom)}`,
+      adjust: (dir) => {
+        const i = (ZOOM_LEVELS as readonly number[]).indexOf(s().viewZoom);
+        const n = ZOOM_LEVELS.length;
+        void saves.updateSettings({ viewZoom: ZOOM_LEVELS[(i + dir + n) % n] ?? 2 });
       },
     },
     {

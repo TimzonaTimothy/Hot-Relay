@@ -5,6 +5,7 @@
  */
 import type { Rank } from './rank';
 import { isDetailSetting, type DetailSetting } from './detail';
+import { ZOOM_DEFAULT, isZoomLevel } from './viewZoom';
 
 export const SAVE_VERSION = 1;
 const SAVE_KEY = 'hot-relay/save';
@@ -21,6 +22,8 @@ export interface Settings {
   touchControls: TouchMode;
   /** Render detail (PERF-01). */
   detail: DetailSetting;
+  /** World camera zoom (UI-11): 2 normal, 1.6 wide, 2.5 close. */
+  viewZoom: number;
 }
 
 export interface BestRun {
@@ -49,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showFps: false,
   touchControls: 'auto',
   detail: 'auto',
+  viewZoom: ZOOM_DEFAULT,
 };
 
 export function defaultSave(): SaveData {
@@ -83,6 +87,7 @@ export function migrate(raw: unknown): SaveData {
   settings.volume = Math.min(1, Math.max(0, settings.volume));
   if (!['auto', 'on', 'off'].includes(settings.touchControls)) settings.touchControls = 'auto';
   if (!isDetailSetting(settings.detail)) settings.detail = 'auto';
+  if (!isZoomLevel(settings.viewZoom)) settings.viewZoom = ZOOM_DEFAULT;
 
   const bestByStage: Record<string, BestRun> = {};
   if (isObj(raw.bestByStage)) {

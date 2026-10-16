@@ -6,7 +6,6 @@
  * the same smoothing carries the camera to the player, so the handoff never cuts.
  */
 import Phaser from 'phaser';
-import { VIEW_H, VIEW_W } from '../config/constants';
 
 export interface CameraSubject {
   x: number;
@@ -16,10 +15,11 @@ export interface CameraSubject {
   inWater: boolean;
 }
 
-/** Feet sit this far below the view centre when standing on the ground. */
+/** Feet sit this far below the view centre when standing on the ground (at the normal 270 px tall view). */
 const FEET_BELOW_CENTRE = 105;
 const FEET_IN_WATER = 40;
 const LOOK_AHEAD = 44;
+const BASE_VIEW_H = 270;
 
 export class CameraRig {
   private cx = 0;
@@ -42,7 +42,7 @@ export class CameraRig {
     this.anchorY = s.feetY;
     this.look = s.facing * LOOK_AHEAD;
     this.cx = this.focusX ?? s.x + this.look;
-    this.cy = this.anchorY - FEET_BELOW_CENTRE;
+    this.cy = this.anchorY - FEET_BELOW_CENTRE * this.viewScale();
     this.apply();
   }
 
@@ -56,18 +56,26 @@ export class CameraRig {
     this.look += (s.facing * LOOK_AHEAD - this.look) * Math.min(1, dt * 2.2);
     const tx = this.focusX ?? s.x + this.look;
     // underwater the diver is framed near the middle so the depths are visible
-    const ty = this.anchorY - (s.inWater ? FEET_IN_WATER : FEET_BELOW_CENTRE);
+    const ty = this.anchorY - (s.inWater ? FEET_IN_WATER : FEET_BELOW_CENTRE) * this.viewScale();
     this.cx += (tx - this.cx) * (1 - Math.exp(-dt * 7));
     this.cy += (ty - this.cy) * (1 - Math.exp(-dt * 5));
     this.apply();
   }
 
+  /** Framing offsets scale with the view height, so the zoomed-in view keeps the feet on screen. */
+  private viewScale(): number {
+    return this.cam.height / this.cam.zoom / BASE_VIEW_H;
+  }
+
   private apply(): void {
     const b = this.bounds;
-    const hw = VIEW_W / 2;
-    const hh = VIEW_H / 2;
-    const x = b.width > VIEW_W ? Phaser.Math.Clamp(this.cx, b.x + hw, b.right - hw) : b.centerX;
-    const y = b.height > VIEW_H ? Phaser.Math.Clamp(this.cy, b.y + hh, b.bottom - hh) : b.centerY;
+    // the view size follows the camera zoom, which the player can change (UI-11)
+    const vw = this.cam.width / this.cam.zoom;
+    const vh = this.cam.height / this.cam.zoom;
+    const hw = vw / 2;
+    const hh = vh / 2;
+    const x = b.width > vw ? Phaser.Math.Clamp(this.cx, b.x + hw, b.right - hw) : b.centerX;
+    const y = b.height > vh ? Phaser.Math.Clamp(this.cy, b.y + hh, b.bottom - hh) : b.centerY;
     // keep the smoothed state inside the bounds, so leaving an edge never lags
     this.cx = x;
     this.cy = y;

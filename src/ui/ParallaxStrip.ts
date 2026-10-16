@@ -13,7 +13,7 @@ export class ParallaxStrip {
   constructor(
     scene: Phaser.Scene,
     key: string,
-    private readonly x0: number,
+    private x0: number,
     y: number,
     viewW: number,
     scale = 1,
@@ -41,6 +41,11 @@ export class ParallaxStrip {
 
   setVisible(on: boolean): void {
     this.images.forEach((img) => img.setVisible(on));
+  }
+
+  /** Move the strip's left edge (the screen origin shifts when the camera zoom changes). */
+  setBaseX(x0: number): void {
+    this.x0 = x0;
   }
 
   /** Set the scroll offset in screen pixels (grows as the view moves right). */

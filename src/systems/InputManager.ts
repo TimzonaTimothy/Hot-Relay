@@ -17,7 +17,9 @@ export type Action =
   | 'weapon'
   | 'reload'
   | 'pause'
-  | 'confirm';
+  | 'confirm'
+  /** Cycle the view zoom (UI-11). */
+  | 'zoom';
 
 export type InputSource = 'keyboard' | 'gamepad' | 'touch';
 
@@ -37,6 +39,7 @@ export interface InputFrame {
   reloadPressed: boolean;
   pausePressed: boolean;
   confirmPressed: boolean;
+  zoomPressed: boolean;
   /** Direction taps since the last read (menus), so a quick key press is never lost. */
   upPressed: boolean;
   downPressed: boolean;
@@ -73,6 +76,7 @@ const KEYMAP: Record<string, Action> = {
   Escape: 'pause',
   KeyP: 'pause',
   Enter: 'confirm',
+  KeyO: 'zoom',
 };
 
 /** Standard Gamepad mapping indices. */
@@ -85,6 +89,7 @@ const PAD = {
   rb: 5,
   lt: 6,
   rt: 7,
+  select: 8,
   start: 9,
   up: 12,
   down: 13,
@@ -108,6 +113,7 @@ const emptyHeld = (): HeldMap => ({
   reload: false,
   pause: false,
   confirm: false,
+  zoom: false,
 });
 
 export class InputManager {
@@ -123,6 +129,7 @@ export class InputManager {
     reload: false,
     pause: false,
     confirm: false,
+    zoom: false,
     up: false,
     down: false,
     left: false,
@@ -242,6 +249,7 @@ export class InputManager {
       reload: b(PAD.lt),
       pause: b(PAD.start),
       confirm: b(PAD.a),
+      zoom: b(PAD.select),
     };
     this.padAxisX = Math.abs(ax) > ANALOG_DEADZONE ? ax : 0;
     if (Object.values(next).some(Boolean)) this.setSource('gamepad');
@@ -260,6 +268,7 @@ export class InputManager {
       'reload',
       'pause',
       'confirm',
+      'zoom',
       'up',
       'down',
       'left',
@@ -294,6 +303,7 @@ export class InputManager {
       reloadPressed: this.latched.reload,
       pausePressed: this.latched.pause,
       confirmPressed: this.latched.confirm,
+      zoomPressed: this.latched.zoom,
       upPressed: this.latched.up,
       downPressed: this.latched.down,
       leftPressed: this.latched.left,
@@ -308,6 +318,7 @@ export class InputManager {
       reload: false,
       pause: false,
       confirm: false,
+      zoom: false,
       up: false,
       down: false,
       left: false,
@@ -346,6 +357,7 @@ export class InputManager {
       reload: false,
       pause: false,
       confirm: false,
+      zoom: false,
       up: false,
       down: false,
       left: false,

@@ -6,7 +6,8 @@
  * physics.
  */
 import Phaser from 'phaser';
-import { CANVAS_H, CANVAS_W, DEPTH, VIEW_H, VIEW_W } from '../config/constants';
+import { CANVAS_H, CANVAS_W, DEPTH } from '../config/constants';
+import { ZOOM_MIN, screenOrigin, viewSize } from '../systems/viewZoom';
 import type { WaterVolume } from '../systems/water';
 
 export class WaterView {
@@ -47,11 +48,12 @@ export class WaterView {
     }
     this.surface = scene.add.graphics().setDepth(DEPTH.player + 5);
 
-    // screen tint while submerged (scroll factor 0 objects sit around the zoomed camera centre)
-    const ox = (CANVAS_W - VIEW_W) / 2;
-    const oy = (CANVAS_H - VIEW_H) / 2;
+    // screen tint while submerged (scroll factor 0 objects sit around the zoomed camera centre);
+    // sized for the widest view zoom so it covers the screen at every zoom
+    const o = screenOrigin(ZOOM_MIN, CANVAS_W, CANVAS_H);
+    const v = viewSize(ZOOM_MIN, CANVAS_W, CANVAS_H);
     this.underTint = scene.add
-      .rectangle(ox, oy, VIEW_W, VIEW_H, 0x0f4a5e, 1)
+      .rectangle(o.x, o.y, v.w, v.h, 0x0f4a5e, 1)
       .setOrigin(0)
       .setScrollFactor(0)
       .setDepth(DEPTH.fx + 5)

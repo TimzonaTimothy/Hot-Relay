@@ -15,9 +15,8 @@ import {
   DEPTH,
   SCENES,
   VIEW_H,
-  VIEW_W,
-  ZOOM,
 } from '../config/constants';
+import { ZOOM_MIN, approachZoom, nextZoom, screenOrigin, viewSize, zoomLabel } from '../systems/viewZoom';
 import { TUNING } from '../config/tuning';
 import { resolveSquad, type EntryAttack, type OperatorDef } from '../data/operators';
 import { shotStats } from '../data/weapons';
@@ -109,6 +108,8 @@ export class StageScene extends Phaser.Scene {
   private mode: SquadMode = 'relay';
   private squadIds: string[] | undefined;
   private settings!: Settings;
+  /** Current (eased) camera zoom; the target is settings.viewZoom (UI-11). */
+  private zoom = 2;
   private squad!: Squad;
   private player!: Player;
   private solids!: Phaser.Physics.Arcade.StaticGroup;
@@ -262,7 +263,8 @@ export class StageScene extends Phaser.Scene {
     this.addColliders();
 
     const cam = this.cameras.main;
-    cam.setZoom(ZOOM);
+    this.zoom = this.settings.viewZoom;
+    cam.setZoom(this.zoom);
     cam.setBackgroundColor(COLORS.bg);
     this.camRig = new CameraRig(cam);
     this.camRig.setBounds(0, 0, width, height);
@@ -314,13 +316,15 @@ export class StageScene extends Phaser.Scene {
   private buildBackground(): void {
     // Objects that do not scroll 1:1 are placed around the zoomed camera's centre, so they
     // shift by half the gap between canvas size and view size to line up with the screen.
-    const ox = (CANVAS_W - VIEW_W) / 2;
+    // Strips are wide enough for the widest view zoom; their left edge moves with the zoom.
+    const ox = screenOrigin(this.settings.viewZoom, CANVAS_W, CANVAS_H).x;
     const oy = (CANVAS_H - VIEW_H) / 2;
+    const stripW = viewSize(ZOOM_MIN, CANVAS_W, CANVAS_H).w;
     // Sky, sun and the far skyline are baked into one opaque tile: on fill-rate-limited
     // devices every full-screen layer costs, so the distant backdrop is drawn exactly once.
     this.bakeSky();
     const layer = (key: string, y: number, fx: number, fy: number) => {
-      const strip = new ParallaxStrip(this, key, ox, oy + y, VIEW_W, 1, {
+      const strip = new ParallaxStrip(this, key, ox, oy + y, stripW, 1, {
         depth: DEPTH.parallax,
         scrollFactor: 0,
       });
@@ -603,15 +607,31 @@ export class StageScene extends Phaser.Scene {
 
     this.camRig.focusX =
       this.cinematic && !this.cinematic.controlReturned ? this.cinematic.frame.cameraX : null;
-    this.camRig.update(delta, this.cameraSubject());
     const cam = this.cameras.main;
+    if (this.zoom !== this.settings.viewZoom) {
+      this.zoom = approachZoom(this.zoom, this.settings.viewZoom, delta);
+      cam.setZoom(this.zoom);
+    }
+    this.camRig.update(delta, this.cameraSubject());
+    const baseX = screenOrigin(this.zoom, CANVAS_W, CANVAS_H).x;
     for (const l of this.parallax) {
+      l.strip.setBaseX(baseX);
       l.strip.setOffset(cam.scrollX * l.fx);
       for (const img of l.strip.objects) img.y = l.y - cam.scrollY * l.fy;
     }
 
     this.writeHud();
     this.exposeState();
+  }
+
+  /** Zoom button / O key / gamepad Back: normal → wide → close (UI-11). Saved as a setting. */
+  private cycleZoom(): void {
+    const z = nextZoom(this.settings.viewZoom);
+    void saves.updateSettings({ viewZoom: z });
+    this.settings = saves.data.settings;
+    sfx.ui();
+    this.game.events.emit(HUD_EVENTS.notice, `View: ${zoomLabel(z)}`);
+    telemetry.log('zoom', { zoom: z });
   }
 
   private cameraSubject() {
@@ -621,6 +641,7 @@ export class StageScene extends Phaser.Scene {
 
   private tick(dt: number): void {
     const inp = input.consume();
+    if (inp.zoomPressed) this.cycleZoom();
     if (inp.pausePressed && this.status === 'playing') {
       this.openPause();
       return;
@@ -1468,6 +1489,7 @@ export class StageScene extends Phaser.Scene {
       arenaLive: this.arenas.reduce((n, a) => n + (a.started && !a.done ? a.enemies.size : 0), 0),
       bullets: this.pBullets.countActive() + this.eBullets.countActive(),
       timeMs: Math.round(this.timeMs),
+      zoom: this.settings.viewZoom,
       ground: p.groundKind,
       grounded: p.grounded,
       lastSafe: { x: Math.round(p.lastSafe.x), y: Math.round(p.lastSafe.y) },

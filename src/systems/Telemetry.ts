@@ -5,6 +5,7 @@
 export type TelemetryEvent =
   | 'session_start'
   | 'stage_start'
+  | 'zoom'
   | 'first_fight'
   | 'swap'
   | 'operator_down'

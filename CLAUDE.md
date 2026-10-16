@@ -47,8 +47,10 @@ Run `npm run e2e` after gameplay changes.
   until a tick consumes them. Scenes never read the keyboard directly.
 - **Arcade overlap callbacks**: argument order is not guaranteed for array-vs-group checks.
   Identify objects by type (`instanceof Bullet`), as `StageScene.addColliders` does.
-- **Zoomed camera**: world camera is zoom ×2 (480×270 logical in a 960×540 canvas). Objects with
-  a scroll factor other than 1 must be offset by `(CANVAS - VIEW) / 2` — see `buildBackground`.
+- **Zoomed camera**: world camera is zoom ×2 by default (480×270 logical in a 960×540 canvas), but
+  the player can change it (UI-11: 2 normal, 1.6 wide, 2.5 close; `systems/viewZoom.ts`). Never
+  assume a 480×270 view: read `cam.width / cam.zoom`. Objects with a scroll factor other than 1
+  sit at `screenOrigin(zoom)` and must be sized for `ZOOM_MIN` — see `buildBackground`, `WaterView`.
 - **Phaser 4 differences**: no `setTintFill` (use `setTint(c).setTintMode(Phaser.TintModes.FILL)`),
   `Geom.Point` is gone (use `Vector2`), `Math.TAU` is 2π. API notes ship in
   `node_modules/phaser/skills/*/SKILL.md` — read them before using an unfamiliar API.
