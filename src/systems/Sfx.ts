@@ -132,6 +132,23 @@ class SfxEngine {
       minGapMs: 80,
     });
   }
+  dash(): void {
+    this.tone('dash', 1400, 140, 'sine', { gain: 0.2, noise: true, minGapMs: 80 });
+  }
+  pickupWeapon(): void {
+    [440, 660, 990, 1320].forEach((f, i) =>
+      window.setTimeout(() => this.tone(`pw${i}`, f, 80, 'square', { gain: 0.2 }), i * 55),
+    );
+  }
+  grenadeBounce(): void {
+    this.tone('gb', 320, 50, 'triangle', { gain: 0.15, minGapMs: 60 });
+  }
+  ping(): void {
+    this.tone('ping', 2600, 60, 'triangle', { gain: 0.12, minGapMs: 50 });
+  }
+  rocket(): void {
+    this.tone('rkt', 200, 260, 'sawtooth', { slideTo: 90, gain: 0.22, noise: true, minGapMs: 80 });
+  }
   climb(): void {
     this.tone('climb', 180, 120, 'triangle', { slideTo: 260, gain: 0.2, minGapMs: 100 });
   }

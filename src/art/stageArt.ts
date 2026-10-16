@@ -22,12 +22,15 @@ export interface PlacedArt {
   x: number;
   y: number;
   pontoon: boolean;
+  /** Index into stage.platforms (so the scene can hide a destroyed piece). */
+  index: number;
 }
 
-type Style = 'quay' | 'container' | 'bed' | 'catwalk' | 'pontoon';
+type Style = 'quay' | 'container' | 'bed' | 'catwalk' | 'pontoon' | 'bridge';
 
 function styleOf(p: PlatformDef, groundY: number): Style {
   if (p.pontoon) return 'pontoon';
+  if (p.bridge !== undefined) return 'bridge';
   if (p.kind === 'oneway') return 'catwalk';
   if (p.y >= groundY + 60) return 'bed';
   if (p.y === groundY) return 'quay';
@@ -45,7 +48,14 @@ export function paintStage(
     const style = styleOf(p, groundY);
     const key = `plat-${stage.id}-${i}`;
     const rnd = seeded(1000 + i * 17);
-    const h = style === 'catwalk' ? p.h + 10 : style === 'pontoon' ? p.h + 12 : p.h;
+    const h =
+      style === 'catwalk'
+        ? p.h + 10
+        : style === 'pontoon'
+          ? p.h + 12
+          : style === 'bridge'
+            ? p.h + 14
+            : p.h;
     canvasTexture(scene, key, p.w, h + OVER, ART_RES, (c) => {
       c.translate(0, OVER);
       switch (style) {
@@ -64,9 +74,12 @@ export function paintStage(
         case 'pontoon':
           pontoon(c, p);
           break;
+        case 'bridge':
+          bridgeSegment(c, p, i);
+          break;
       }
     });
-    out.push({ key, x: p.x, y: p.y - OVER, pontoon: style === 'pontoon' });
+    out.push({ key, x: p.x, y: p.y - OVER, pontoon: style === 'pontoon', index: i });
   });
   return out;
 }
@@ -324,4 +337,41 @@ function pontoon(c: Ctx, p: PlatformDef): void {
   }
   c.fillStyle = '#b08a5c';
   c.fillRect(0, 0, w, 0.8);
+}
+
+/** One segment of a steel-and-plank bridge: deck, girder below, a post every other piece. */
+function bridgeSegment(c: Ctx, p: PlatformDef, i: number): void {
+  const { w } = p;
+  c.fillStyle = '#6b4f33';
+  c.fillRect(0, 0, w, 3.4);
+  c.fillStyle = '#8a6a44';
+  c.fillRect(0, 0, w, 1);
+  c.strokeStyle = INK;
+  c.lineWidth = 0.4;
+  for (let x = 0; x < w; x += 4) {
+    c.beginPath();
+    c.moveTo(x, 0);
+    c.lineTo(x, 3.4);
+    c.stroke();
+  }
+  // girder
+  c.fillStyle = '#56616d';
+  c.fillRect(0, 3.4, w, 2.4);
+  c.fillStyle = '#ffd23f';
+  if (i % 2 === 0) c.fillRect(1, 3.8, 3, 0.8);
+  c.strokeStyle = '#3a4554';
+  c.lineWidth = 0.8;
+  c.beginPath();
+  c.moveTo(0, 6);
+  c.lineTo(w / 2, 12);
+  c.lineTo(w, 6);
+  c.stroke();
+  if (i % 2 === 0) {
+    roundRect(c, w / 2 - 1.2, 5.6, 2.4, 14, 0.5);
+    c.fillStyle = '#3a4554';
+    c.fill();
+  }
+  c.strokeStyle = INK;
+  c.lineWidth = 0.5;
+  c.strokeRect(0, 0, w, 5.8);
 }

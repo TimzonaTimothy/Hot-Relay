@@ -7,11 +7,11 @@
 import Phaser from 'phaser';
 import { inked, poly, rimTop, roundRect, shadeBelow, type Ctx } from './paint';
 import { OPERATORS } from '../data/operators';
-import type { WeaponId } from '../data/weapons';
+import { PICKUP_WEAPONS, type WeaponId } from '../data/weapons';
 
 export const PART_RES = 6;
 
-export type RigId = 'kemi' | 'rurik' | 'meilin' | 'tari' | 'contractor';
+export type RigId = 'kemi' | 'rurik' | 'meilin' | 'tari' | 'contractor' | 'grenadier';
 
 export interface RigPalette {
   armour: string;
@@ -70,6 +70,17 @@ export const RIG_PALETTES: Record<RigId, RigPalette> = {
     helmetShade: '#162328',
     boot: '#101619',
   },
+  grenadier: {
+    armour: '#7a6a45',
+    armourShade: '#544829',
+    cloth: '#3b3a2c',
+    clothShade: '#26251c',
+    accent: '#ff9b2f',
+    skin: '#6b5444',
+    helmet: '#5c5236',
+    helmetShade: '#3f3823',
+    boot: '#1c1b16',
+  },
   contractor: {
     armour: '#565a63',
     armourShade: '#373a41',
@@ -96,7 +107,10 @@ const L = 0.55; // outline width in world units (≈1.6 screen px in game)
 /** Which arm textures each rig needs: the operator's own two weapons, or the contractor rifle. */
 function weaponsFor(id: RigId): WeaponId[] {
   if (id === 'contractor') return ['contractorRifle'];
-  return OPERATORS.find((o) => o.rig === id)?.weapons ?? ['p9'];
+  if (id === 'grenadier') return ['thumper'];
+  const own = OPERATORS.find((o) => o.rig === id)?.weapons ?? ['p9'];
+  // every operator can carry any supply-pod weapon
+  return [...own, ...PICKUP_WEAPONS];
 }
 
 export const armKey = (id: RigId, weapon: WeaponId) => `${id}-arm-${weapon}`;
@@ -205,7 +219,7 @@ function leg(c: Ctx, p: RigPalette, back: boolean, id: RigId): void {
 function torso(c: Ctx, p: RigPalette, id: RigId): void {
   // backpack (behind, towards -x since rigs face right)
   roundRect(c, -8.2, -10.6, 5, 8.6, 1.4);
-  inked(c, id === 'contractor' ? p.clothShade : p.armourShade, L);
+  inked(c, id === 'contractor' || id === 'grenadier' ? p.clothShade : p.armourShade, L);
   rimTop(c, -7.6, -4, -10, 'rgba(255,255,255,0.18)', 0.45);
   if (id === 'tari') {
     // twin rebreather cylinders over the pack
@@ -253,10 +267,10 @@ function torso(c: Ctx, p: RigPalette, id: RigId): void {
 
 function head(c: Ctx, p: RigPalette, id: RigId): void {
   // neck
-  c.fillStyle = id === 'contractor' ? p.clothShade : p.skin;
+  c.fillStyle = id === 'contractor' || id === 'grenadier' ? p.clothShade : p.skin;
   c.fillRect(-1.3, -2.4, 2.8, 2.6);
-  if (id === 'contractor') {
-    // full gas mask
+  if (id === 'contractor' || id === 'grenadier') {
+    // full gas mask (grenadier: orange visor on olive)
     roundRect(c, -3.2, -7.6, 7.2, 6.4, 2.6);
     inked(c, p.skin, L);
     c.beginPath();
@@ -334,7 +348,7 @@ function head(c: Ctx, p: RigPalette, id: RigId): void {
   // brim
   roundRect(c, -5, -6, 10.8, 1.4, 0.6);
   inked(c, p.helmetShade, L * 0.8);
-  if (id !== 'contractor') {
+  if (id !== 'contractor' && id !== 'grenadier') {
     // goggles pushed onto the helmet, lens in operator colour
     roundRect(c, 0.2, -8.6, 4.2, 1.9, 0.8);
     inked(c, '#20252b', L * 0.7);
@@ -465,6 +479,78 @@ function arm(c: Ctx, p: RigPalette, weapon: WeaponId): void {
       rimTop(c, 7.8, 13, -1, metalHi);
       roundRect(c, 8, 0.6, 1.8, 3.2, 0.5);
       inked(c, '#3a3f45', L * 0.8);
+      break;
+    case 'fan':
+      // pump scattergun: wide barrel, drum magazine, pump grip
+      poly(c, [
+        [5.6, -1.9],
+        [16.4, -1.9],
+        [16.8, 1.4],
+        [5.6, 1.9],
+      ]);
+      inked(c, '#3a2f28', L);
+      rimTop(c, 6.2, 16, -1.4, metalHi);
+      roundRect(c, 16.2, -1.6, 4.4, 2.6, 0.6); // wide barrel
+      inked(c, metal, L * 0.8);
+      c.beginPath();
+      c.arc(10.5, 2.4, 2.2, 0, Math.PI * 2); // drum
+      inked(c, '#4a3d33', L * 0.8);
+      roundRect(c, 13, 0.9, 3.2, 1.6, 0.5); // pump
+      inked(c, '#6b4a2e', L * 0.7);
+      c.fillStyle = '#ffb36b';
+      c.fillRect(7, -1.4, 2, 0.6);
+      break;
+    case 'hornet':
+      // shoulder rocket tube with a sight and a warhead peeking out
+      roundRect(c, 2, -3.2, 18.5, 4.2, 1.2);
+      inked(c, '#4f5a3a', L);
+      rimTop(c, 2.6, 20, -2.6, 'rgba(255,255,255,0.3)');
+      c.fillStyle = '#ffd23f';
+      c.fillRect(4, -3.2, 1, 4.2);
+      c.fillRect(17.4, -3.2, 1, 4.2);
+      roundRect(c, 9, -5.2, 3.2, 2, 0.6); // sight
+      inked(c, '#20252b', L * 0.7);
+      poly(c, [
+        [20.5, -2.6],
+        [22.4, -1.1],
+        [20.5, 0.4],
+      ]); // warhead
+      inked(c, '#c45a2a', L * 0.6);
+      roundRect(c, 8.6, 0.8, 1.6, 3, 0.5); // grip
+      inked(c, '#20252b', L * 0.7);
+      break;
+    case 'lance':
+      // energy rifle: sleek body, glowing coil, emitter fins
+      poly(c, [
+        [5.6, -1.5],
+        [17, -1.8],
+        [18, 0.6],
+        [5.6, 1.5],
+      ]);
+      inked(c, '#e3e8ee', L);
+      c.fillStyle = '#8ff3ff';
+      for (let x = 9; x < 16; x += 1.6) c.fillRect(x, -1.1, 0.8, 1.6);
+      roundRect(c, 17.6, -1, 3.6, 1.6, 0.5);
+      inked(c, '#5d6a78', L * 0.7);
+      poly(c, [
+        [21, -2],
+        [22.6, -0.2],
+        [21, 1.6],
+      ]);
+      inked(c, '#8ff3ff', L * 0.5);
+      roundRect(c, 9.4, 1.2, 1.6, 3, 0.5);
+      inked(c, '#2d3238', L * 0.7);
+      break;
+    case 'thumper':
+      // stubby grenade launcher with a fat barrel
+      roundRect(c, 5.6, -2, 8, 3.6, 1);
+      inked(c, '#3b3a2c', L);
+      roundRect(c, 13, -2.6, 5.4, 4.6, 1.4); // fat barrel
+      inked(c, '#2b2e28', L);
+      c.fillStyle = '#ff9b2f';
+      c.fillRect(14.4, -2.6, 0.9, 4.6);
+      roundRect(c, 8.6, 1.2, 1.6, 3.2, 0.5);
+      inked(c, '#20252b', L * 0.7);
       break;
     default:
       // contractor rifle

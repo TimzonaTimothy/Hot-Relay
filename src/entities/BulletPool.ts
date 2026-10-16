@@ -15,6 +15,12 @@ export class Bullet extends Phaser.Physics.Arcade.Image {
   wet = false;
   /** Keeps full speed in water (speargun bolts). */
   waterproof = false;
+  /** Homing turn rate (rad/s), 0 for straight rounds. */
+  homing = 0;
+  /** Explodes when it stops (hit, wall, or end of flight). */
+  blast: { radius: number; damage: number } | null = null;
+  /** Tracer colour drawn behind the round. */
+  trail = 0xffffff;
   /** Enemies already hit by this bullet, so a piercing shot never double-hits. */
   readonly hitTargets = new Set<object>();
 }
@@ -34,12 +40,21 @@ export interface FireOptions {
   /** Fired from underwater (already slowed by the weapon rules). */
   wet?: boolean;
   waterproof?: boolean;
+  homing?: number;
+  blast?: { radius: number; damage: number } | null;
+  trail?: number;
+  /** Use a different texture for this round (rockets). */
+  texture?: string;
 }
 
 export class BulletPool {
   readonly group: Phaser.Physics.Arcade.Group;
 
-  constructor(scene: Phaser.Scene, texture: string, maxSize: number) {
+  constructor(
+    scene: Phaser.Scene,
+    private readonly texture: string,
+    maxSize: number,
+  ) {
     this.group = scene.physics.add.group({
       classType: Bullet,
       maxSize,
@@ -63,16 +78,22 @@ export class BulletPool {
     b.lifeMs = o.lifeMs;
     b.wet = o.wet ?? false;
     b.waterproof = o.waterproof ?? false;
+    b.homing = o.homing ?? 0;
+    b.blast = o.blast ?? null;
+    b.trail = o.trail ?? 0xffffff;
+    b.setTexture(o.texture ?? this.texture);
     b.hitTargets.clear();
     b.setRotation(Math.atan2(o.dirY, o.dirX));
-    b.setScale(o.length ? o.length / b.width : 1, 1);
+    const sx = o.length ? o.length / b.width : 1;
+    const sy = o.texture ? sx : 1; // textured rounds (rockets) scale uniformly
+    b.setScale(sx, sy);
     if (o.tint !== undefined) b.setTint(o.tint);
     else b.clearTint();
     const body = b.body as Phaser.Physics.Arcade.Body;
     body.setAllowGravity(false);
     // a square hitbox regardless of rotation keeps diagonal shots fair
     const size = Math.max(4, Math.min(8, o.length ?? b.width));
-    body.setSize(size, size, true);
+    body.setSize(size / sx, size / sy, true);
     body.setVelocity(o.dirX * o.speed, o.dirY * o.speed);
     return b;
   }
@@ -92,6 +113,7 @@ export class BulletPool {
     water: readonly WaterVolume[] = [],
     onEnterWater?: (x: number, y: number) => void,
     margin = 32,
+    onExpire?: (b: Bullet) => void,
   ): void {
     for (const child of this.group.getChildren()) {
       const b = child as Bullet;
@@ -106,6 +128,7 @@ export class BulletPool {
           b.lifeMs = Math.min(b.lifeMs, 420);
         }
       }
+      if (b.lifeMs <= 0 && onExpire) onExpire(b);
       if (
         b.lifeMs <= 0 ||
         b.x < view.x - margin ||

@@ -257,7 +257,7 @@ export class MenuScene extends Phaser.Scene {
       fontSize: 20,
     });
     this.hint.setText(
-      'MOVE  arrows / WASD     JUMP / SWIM UP  Z / Space     FIRE  X / J\nRELAY SWAP  C / Shift     WEAPON  Q     RELOAD  R     PAUSE  Esc\nGamepad and touch supported',
+      'MOVE  A D / arrows     AIM  W S     JUMP + FLIP  Space     FIRE  J     PRONE  C or S\nDASH  Shift     WEAPONS  1 2 3 / Q     RELAY SWAP  E     RELOAD  R     PAUSE  Esc\nGamepad and touch supported',
     );
   }
 

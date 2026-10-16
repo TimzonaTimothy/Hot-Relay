@@ -272,6 +272,187 @@ export function generateFxArt(scene: Phaser.Scene): void {
     inked(c, '#3a414b', 0.4);
   });
 
+  // Explosion fireball (tinted and scaled per blast).
+  tex('fx-fireball', 16, 16, (c) => {
+    const grd = c.createRadialGradient(8, 8, 0, 8, 8, 8);
+    grd.addColorStop(0, 'rgba(255,255,230,1)');
+    grd.addColorStop(0.25, 'rgba(255,214,110,1)');
+    grd.addColorStop(0.6, 'rgba(255,110,30,0.85)');
+    grd.addColorStop(1, 'rgba(160,40,10,0)');
+    c.fillStyle = grd;
+    c.beginPath();
+    for (let i = 0; i <= 14; i++) {
+      const a = (i / 14) * Math.PI * 2;
+      const r = i % 2 ? 7.9 : 6.2;
+      if (i === 0) c.moveTo(8 + Math.cos(a) * r, 8 + Math.sin(a) * r);
+      else c.lineTo(8 + Math.cos(a) * r, 8 + Math.sin(a) * r);
+    }
+    c.fill();
+  });
+
+  // Rocket for the Hornet launcher (pointing right).
+  tex('rocket', 9, 3, (c) => {
+    roundRect(c, 0.6, 0.6, 6.4, 1.8, 0.8);
+    inked(c, '#5b6640', 0.3);
+    poly(c, [
+      [7, 0.5],
+      [8.8, 1.5],
+      [7, 2.5],
+    ]);
+    inked(c, '#c45a2a', 0.3);
+    c.fillStyle = '#ffd23f';
+    c.fillRect(1.2, 0.6, 0.6, 1.8);
+  });
+
+  // Grenade with a red fuse lamp.
+  tex('grenade', 5, 5, (c) => {
+    c.beginPath();
+    c.ellipse(2.5, 2.8, 2, 1.9, 0, 0, Math.PI * 2);
+    inked(c, '#4a5236', 0.35);
+    c.fillStyle = '#2a2e22';
+    c.fillRect(1.6, 0.5, 1.8, 1);
+    c.fillStyle = '#ff3b30';
+    c.fillRect(2.1, 2.2, 0.9, 0.9);
+  });
+
+  // Explosive barrel.
+  tex('barrel', 10, 14, (c) => {
+    roundRect(c, 0.5, 0.5, 9, 13, 1.6);
+    inked(c, '#b23a26', 0.6);
+    c.fillStyle = '#8a2a1a';
+    c.fillRect(1, 7.5, 8, 5.5);
+    c.fillStyle = 'rgba(255,255,255,0.25)';
+    c.fillRect(2, 1, 1.2, 12);
+    for (const y of [3, 10.5]) {
+      c.fillStyle = '#5e1d12';
+      c.fillRect(0.6, y, 8.8, 1);
+    }
+    c.fillStyle = '#ffd23f';
+    poly(c, [
+      [5, 4.6],
+      [7.2, 8.4],
+      [2.8, 8.4],
+    ]);
+    c.fill();
+    c.fillStyle = '#14181d';
+    c.fillRect(4.7, 5.8, 0.6, 1.4);
+  });
+
+  // Supply pod: a winged capsule that crosses the screen; drops a pickup when shot.
+  tex('pod', 18, 10, (c) => {
+    poly(c, [
+      [3, 4],
+      [0.5, 0.6],
+      [6, 3],
+    ]);
+    inked(c, '#7a8794', 0.5);
+    poly(c, [
+      [3, 6],
+      [0.5, 9.4],
+      [6, 7],
+    ]);
+    inked(c, '#5d6875', 0.5);
+    roundRect(c, 3, 2.2, 13.5, 5.6, 2.8);
+    inked(c, '#c9d0d8', 0.6);
+    c.fillStyle = '#ff7a1f';
+    c.fillRect(8, 2.4, 2.2, 5.2);
+    c.fillStyle = 'rgba(255,255,255,0.6)';
+    c.fillRect(5, 3, 8, 0.8);
+  });
+
+  // Pickups: a badge with an emblem per kind.
+  const badge = (key: string, fill: string, emblem: (c: Ctx) => void) =>
+    tex(key, 12, 12, (c) => {
+      poly(c, [
+        [6, 0.4],
+        [11.4, 3.3],
+        [11.4, 8.7],
+        [6, 11.6],
+        [0.6, 8.7],
+        [0.6, 3.3],
+      ]);
+      inked(c, fill, 0.6);
+      poly(c, [
+        [6, 1.6],
+        [10.2, 3.9],
+        [10.2, 5],
+        [1.8, 5],
+        [1.8, 3.9],
+      ]);
+      c.fillStyle = 'rgba(255,255,255,0.3)';
+      c.fill();
+      c.fillStyle = INK;
+      c.strokeStyle = INK;
+      emblem(c);
+    });
+  badge('pickup-fan', '#ffb347', (c) => {
+    c.lineWidth = 0.9;
+    for (const a of [-0.55, -0.27, 0, 0.27, 0.55]) {
+      c.beginPath();
+      c.moveTo(3, 6.5);
+      c.lineTo(3 + Math.cos(a) * 6, 6.5 + Math.sin(a) * 6);
+      c.stroke();
+    }
+  });
+  badge('pickup-hornet', '#ff6a4a', (c) => {
+    roundRect(c, 2.6, 5.4, 5.6, 2, 0.8);
+    c.fill();
+    poly(c, [
+      [8.2, 4.8],
+      [10, 6.4],
+      [8.2, 8],
+    ]);
+    c.fill();
+  });
+  badge('pickup-lance', '#8ff3ff', (c) => {
+    c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(2, 8);
+    c.lineTo(5, 4.5);
+    c.lineTo(6.5, 7);
+    c.lineTo(10, 3.5);
+    c.stroke();
+  });
+  badge('pickup-ammo', '#7ed957', (c) => {
+    for (const x of [3.4, 5.6, 7.8]) {
+      roundRect(c, x, 4.6, 1.4, 4.4, 0.6);
+      c.fill();
+    }
+  });
+
+  // Turret emplacement: armoured base and a separate barrel that rotates.
+  tex('turret-base', 22, 14, (c) => {
+    poly(c, [
+      [1, 13.5],
+      [3, 5],
+      [19, 5],
+      [21, 13.5],
+    ]);
+    inked(c, '#4b545e', 0.7);
+    c.fillStyle = '#ffd23f';
+    for (let x = 2; x < 20; x += 4) {
+      poly(c, [
+        [x, 13.4],
+        [x + 2, 13.4],
+        [x + 3, 11],
+        [x + 1, 11],
+      ]);
+      c.fill();
+    }
+    roundRect(c, 5, 1, 12, 7, 3);
+    inked(c, '#38414b', 0.7);
+    c.fillStyle = 'rgba(255,255,255,0.25)';
+    c.fillRect(6.5, 1.8, 8, 0.8);
+  });
+  tex('turret-gun', 16, 5, (c) => {
+    roundRect(c, 0, 0.8, 9, 3.4, 1.2);
+    inked(c, '#2d3238', 0.5);
+    roundRect(c, 8.4, 1.6, 7.2, 1.8, 0.6);
+    inked(c, '#1f2328', 0.5);
+    c.fillStyle = '#ff3b30';
+    c.fillRect(2, 1.6, 1.4, 1.2);
+  });
+
   generateHelicopter(scene);
 }
 

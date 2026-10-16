@@ -1,7 +1,8 @@
 /**
  * On-screen touch controls (INPUT-03).
  * Left side: a floating stick that appears where the thumb lands (8-way).
- * Right side: Fire, Jump, Swap and Weapon buttons. Top right: pause.
+ * Right side: Fire, Jump, Dash, Swap and Weapon buttons. Top right: pause.
+ * Pulling the stick down on the ground goes prone.
  * The stick is analogue horizontally: a small push walks, a full push runs.
  * Multi-touch: each pointer is tracked separately, so you can run, jump and fire at once.
  */
@@ -47,6 +48,7 @@ export class TouchControls {
     this.addButton('fire', right - 120, bottom + 10, 50, 'FIRE');
     this.addButton('swap', right - 30, bottom - 125, 38, 'SWAP');
     this.addButton('weapon', right - 150, bottom - 105, 32, 'WPN');
+    this.addButton('dash', right - 240, bottom + 20, 32, 'DASH');
     this.addButton('pause', CANVAS_W - 40, 40, 24, 'II');
 
     scene.input.on('pointerdown', this.onDown, this);

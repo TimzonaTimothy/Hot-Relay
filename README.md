@@ -24,20 +24,26 @@ npm run build && npm run preview   # production build with offline support, http
 
 ## Controls
 
-| Action                                                    | Keyboard       | Gamepad            | Touch                                |
-| --------------------------------------------------------- | -------------- | ------------------ | ------------------------------------ |
-| Move / aim (8-way); a light stick tilt walks              | Arrows or WASD | Left stick / D-pad | Left thumb anywhere on the left side |
-| Jump (down + jump drops through planks)                   | Z, Space, K    | A                  | JUMP                                 |
-| Swim: up/down to rise and dive, jump = stroke or jump out | same           | same               | same                                 |
-| Fire                                                      | X, J           | X or RT            | FIRE (hold)                          |
-| Switch weapon                                             | Q, V           | Y or LB            | WPN                                  |
-| Reload                                                    | R              | LT                 | (automatic)                          |
-| Relay Swap                                                | C, L, Shift    | B or RB            | SWAP                                 |
-| Pause                                                     | Esc, P         | Start              | ‖ (top right)                        |
-| Skip insertion (after the first viewing)                  | Z / X / Enter  | A                  | tap                                  |
+Keyboard bindings live in `src/config/controls.ts` (data, with saved overrides; a rebinding
+screen is INPUT-05).
+
+| Action                                                     | Keyboard                | Gamepad            | Touch                                |
+| ---------------------------------------------------------- | ----------------------- | ------------------ | ------------------------------------ |
+| Move / aim (8-way); a light stick tilt walks               | A D / arrows, W S aim   | Left stick / D-pad | Left thumb anywhere on the left side |
+| Jump + somersault (down + jump drops through planks)       | Space (also K, Z)       | A                  | JUMP                                 |
+| Fire (hold)                                                | J (also X)              | X or RT            | FIRE (hold)                          |
+| Prone: hold Down on the ground, or toggle                  | S / Down (hold), C      | Down, LB (toggle)  | stick down                           |
+| Dash / dodge (brief invulnerability, one per jump)         | Shift                   | B                  | DASH                                 |
+| Weapon slots (1 primary, 2 sidearm, 3 pickup) / cycle      | 1 2 3 / Q               | Y (cycle)          | WPN                                  |
+| Reload                                                     | R                       | LT                 | (automatic)                          |
+| Relay Swap                                                 | E (also L)              | RB                 | SWAP                                 |
+| Swim: up/down to rise and dive, jump = stroke or jump out  | same                    | same               | same                                 |
+| Pause                                                      | Esc, P                  | Start              | ‖ (top right)                        |
+| Skip insertion (after the first viewing)                   | Space / J / Enter       | A                  | tap                                  |
 
 Touch options in Settings: aim-assist (on by default), auto-fire, controls Auto/On/Off.
-Swimming into a quay wall at the surface climbs out automatically.
+Swimming into a quay wall at the surface climbs out automatically. From prone, Jump stands
+you up first and then jumps.
 
 ## The squad (placeholder numbers)
 

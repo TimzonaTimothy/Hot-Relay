@@ -378,12 +378,34 @@ export class HudScene extends Phaser.Scene {
       this.wInfo.setText('CAN’T FIRE UNDERWATER').setColor(blink ? CSSC.alert : CSSC.bone);
     } else if (w.reload !== null) {
       this.wInfo.setText('RELOADING').setColor(CSSC.signal);
-    } else {
+    } else if (input.lastSource === 'keyboard') {
+      // slot strip: 1 SMG  2 P9  3 FAN·34
       this.wInfo
-        .setText(`[${keyHint}] ${w.other.toUpperCase()}   /${w.magSize}`)
+        .setText(
+          w.slots
+            .map(
+              (sl, i) =>
+                `${sl.active ? '▸' : ' '}${i + 1} ${sl.short}${sl.ammo !== null ? '·' + sl.ammo : ''}`,
+            )
+            .join('  '),
+        )
+        .setColor(CSSC.muted);
+    } else {
+      const extra = w.slots[2]?.ammo != null ? `   ${w.slots[2]?.short}·${w.slots[2]?.ammo}` : '';
+      this.wInfo
+        .setText(`[${keyHint}] ${w.other.toUpperCase()}   /${w.magSize}${extra}`)
         .setColor(CSSC.muted);
     }
-    this.wInfo.setPosition(x + 22, y + 34);
+    this.wInfo.setPosition(x + 22, y + 34).setScale(1);
+    if (this.wInfo.width > WPN_W - 36) this.wInfo.setScale((WPN_W - 36) / this.wInfo.width, 1);
+    // dash readiness: a thin bar under the panel
+    g.fillStyle(PALETTE.ink, 0.8).fillRect(x + 14, y + WPN_H + 3, 60, 3);
+    g.fillStyle(w.dashReady >= 1 ? 0x8ff3ff : PALETTE.steelHi, 1).fillRect(
+      x + 14,
+      y + WPN_H + 3,
+      60 * Math.min(1, w.dashReady),
+      3,
+    );
     // magazine strip / reload bar
     const bx = x + 20;
     const by = y + WPN_H - 8;

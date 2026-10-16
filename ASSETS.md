@@ -20,7 +20,8 @@ Cut-out rig parts, drawn at 6 px per world px. Pivots are listed in `PARTS`.
 
 Animation is procedural (poses blended per state in `src/entities/Rig.ts`). If hand-made
 animation replaces it, keep the state names in `src/systems/anim.ts`: idle, walk, run, jump,
-fall, land, crouch, slide, hurt, dead, victory, rope, swimSurface, swimUnder, climb.
+aim, shoot, runShoot, takeoff, flip, fall, land, proneEnter, prone, proneShoot, proneExit, slide,
+dash, hurt, dead, victory, rope, swimSurface, swimUnder, climb.
 Reload and recoil are layered on the arm.
 
 ## Effects, hazards, helicopter (src/art/fx.ts)
