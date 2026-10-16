@@ -85,7 +85,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   /** Shown or hidden as a whole (rig, shadow). */
   shown = true;
 
-  private jumpCtl = new JumpController(TUNING.coyoteMs, TUNING.jumpBufferMs);
+  private jumpCtl = new JumpController(TUNING.coyoteMs, TUNING.jumpBufferMs, TUNING.airJumps);
   private jumpCutDone = true;
   private wasGrounded = true;
   private fallSpeed = 0;
@@ -283,11 +283,17 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.jumpCtl.clear();
       body.setVelocityY(40);
       this.y += 2;
-    } else if (this.jumpCtl.step(dtMs, grounded, inp.jumpPressed)) {
-      body.setVelocityY(-this.def.jumpVelocity);
-      this.jumpCutDone = false;
-      jumped = true;
-      sfx.jump();
+    } else {
+      const kind = this.jumpCtl.step(dtMs, grounded, inp.jumpPressed);
+      if (kind) {
+        const scale = kind === 'air' ? TUNING.airJumpScale : 1;
+        body.setVelocityY(-this.def.jumpVelocity * scale);
+        this.jumpCutDone = false;
+        jumped = true;
+        sfx.jump();
+        // a puff under the feet sells the mid-air kick
+        if (kind === 'air') this.world.fx.dust(this.x, this.feetY, 5);
+      }
     }
 
     // --- variable jump height: releasing early cuts the rise once
@@ -373,6 +379,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         this.jumpCutDone = false;
         jumped = true;
         sfx.jump();
+        this.jumpCtl.refill(); // the double jump helps reach a high quay
       } else {
         // swim stroke: a burst towards the surface (or the held direction)
         const kick = prof.speed * T.strokeBoost;

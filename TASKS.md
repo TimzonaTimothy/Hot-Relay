@@ -84,6 +84,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] MOVE-04 Drop through one-way platforms (G3) (done 2026-10-15)
 - [ ] MOVE-05 Kemi dash-slide with i-frames (G5)
 - [ ] MOVE-06 Rurik brace (planted front shield) (G5)
+- [x] MOVE-07 Double jump: one extra jump in mid-air, restored on landing or a water exit (owner request) (done 2026-10-15)
 
 ## COMBAT — Shooting, weapons, damage
 
@@ -183,6 +184,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [ ] UI-08 Story text panels + Ifeoma briefing (G5)
 - [ ] UI-09 "Add to Home Screen" guide (iOS + Android) (G5)
 - [ ] UI-10 Region map / stage select (G6)
+- [x] UI-11 View zoom button (normal / wide / close), saved as a setting; touch buttons restyled as hexagonal theme plates with a lit pressed state (H4) (done 2026-10-15)
 
 ## PWA — Install and offline
 

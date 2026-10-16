@@ -361,6 +361,38 @@ try {
     s = await waitState(page, (x) => x.reloading, 3000);
     check('R reloads a part-used magazine', s.reloading && s.weapon === 'kestrel', `mag ${s.mag}`);
 
+    // double jump (MOVE-07): a second press in mid-air climbs higher than a single jump
+    const apex = async (double) => {
+      await waitState(page, (x) => x.grounded, 3000);
+      const ground = (await state(page)).feetY;
+      const watch = page.evaluate(
+        () =>
+          new Promise((done) => {
+            let min = Infinity;
+            const t0 = performance.now();
+            const tick = () => {
+              min = Math.min(min, window.__hotRelay.state.feetY);
+              if (performance.now() - t0 < 1400) requestAnimationFrame(tick);
+              else done(min);
+            };
+            tick();
+          }),
+      );
+      await page.keyboard.down('Space');
+      await sleep(260);
+      await page.keyboard.up('Space');
+      if (double) {
+        await sleep(40);
+        await page.keyboard.down('Space');
+        await sleep(260);
+        await page.keyboard.up('Space');
+      }
+      return ground - (await watch);
+    };
+    const single = await apex(false);
+    const twice = await apex(true);
+    check('double jump goes higher than a single jump', twice > single + 20, `single ${Math.round(single)} px, double ${Math.round(twice)} px`);
+
     // Kemi drops into channel 1, floats, and climbs out by pushing into the far quay
     await dbg('teleport', 744, 236);
     s = await waitState(page, (x) => x.inWater && x.anim === 'swimSurface', 6000);
@@ -463,12 +495,12 @@ try {
       timeout: 15000,
     });
     await sleep(600);
-    // FIRE button sits at canvas (750, 460) of 960×540; scale to the viewport
+    // FIRE button sits at canvas (858, 380) of 960×540; scale to the viewport
     const box = await page.locator('canvas').boundingBox();
     const sx = box.width / 960;
     const sy = box.height / 540;
     for (let i = 0; i < 6; i++) {
-      await page.touchscreen.tap(box.x + 750 * sx, box.y + 460 * sy);
+      await page.touchscreen.tap(box.x + 858 * sx, box.y + 380 * sy);
       await sleep(60);
     }
     let s = await state(page);
@@ -478,10 +510,18 @@ try {
       s.bullets > 0 || s.mag < 30,
       `bullets=${s.bullets} mag=${s.mag}`,
     );
-    // WPN button at canvas (720, 345)
-    await page.touchscreen.tap(box.x + 720 * sx, box.y + 345 * sy);
+    // WPN button at canvas (790, 290)
+    await page.touchscreen.tap(box.x + 790 * sx, box.y + 290 * sy);
     s = await waitState(page, (x) => x.weapon === 'p9', 3000);
     check('touch WPN button switches weapon', s.weapon === 'p9', s.weapon);
+    // green View zoom button at canvas (650, 478): normal → wide → close → normal
+    const zooms = [];
+    for (let i = 0; i < 3; i++) {
+      await page.touchscreen.tap(box.x + 650 * sx, box.y + 478 * sy);
+      await sleep(250);
+      zooms.push((await state(page)).zoom);
+    }
+    check('touch zoom button cycles the view', zooms.join(',') === '1.6,2.5,2', zooms.join(' → '));
     await ctx.close();
   }
 

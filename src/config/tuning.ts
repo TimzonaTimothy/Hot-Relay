@@ -21,6 +21,10 @@ export const TUNING = {
   jumpCutMultiplier: 0.45,
   coyoteMs: 90,
   jumpBufferMs: 110,
+  /** Extra jumps in mid-air before landing (MOVE-07 double jump). */
+  airJumps: 1,
+  /** Air jump speed as a share of the operator's ground jump (a slightly lower hop). */
+  airJumpScale: 0.88,
   /** How long one-way platforms ignore the player after down+jump. */
   dropThroughMs: 220,
 

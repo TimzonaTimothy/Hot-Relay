@@ -30,23 +30,60 @@ describe('FixedStep', () => {
 describe('JumpController', () => {
   it('jumps immediately when grounded', () => {
     const j = new JumpController(90, 110);
-    expect(j.step(16, true, true)).toBe(true);
+    expect(j.step(16, true, true)).toBe('ground');
   });
   it('allows coyote-time jumps just after leaving a ledge', () => {
     const j = new JumpController(90, 110);
     j.step(16, true, false);
-    expect(j.step(50, false, true)).toBe(true);
+    expect(j.step(50, false, true)).toBe('ground');
   });
   it('refuses jumps after coyote time runs out', () => {
     const j = new JumpController(90, 110);
     j.step(16, true, false);
     j.step(100, false, false);
-    expect(j.step(16, false, true)).toBe(false);
+    expect(j.step(16, false, true)).toBeNull();
   });
   it('buffers a press made just before landing', () => {
     const j = new JumpController(90, 110);
     j.step(16, false, true); // pressed in the air
-    expect(j.step(60, true, false)).toBe(true); // lands within the buffer
+    expect(j.step(60, true, false)).toBe('ground'); // lands within the buffer
+  });
+});
+
+describe('Double jump (MOVE-07)', () => {
+  it('a second press in mid-air jumps again, once', () => {
+    const j = new JumpController(90, 110, 1);
+    expect(j.step(16, true, true)).toBe('ground');
+    j.step(100, false, false); // rising, past coyote time
+    expect(j.step(16, false, true)).toBe('air');
+    expect(j.airJumpsRemaining).toBe(0);
+    expect(j.step(16, false, true)).toBeNull();
+  });
+  it('landing gives the air jump back', () => {
+    const j = new JumpController(90, 110, 1);
+    j.step(16, true, true);
+    j.step(100, false, false);
+    j.step(16, false, true);
+    j.step(16, true, false);
+    expect(j.airJumpsRemaining).toBe(1);
+  });
+  it('walking off a ledge still leaves the air jump', () => {
+    const j = new JumpController(90, 110, 1);
+    j.step(16, true, false);
+    j.step(120, false, false); // coyote time has run out
+    expect(j.step(16, false, true)).toBe('air');
+  });
+  it('within coyote time a press is the normal ground jump, not the air jump', () => {
+    const j = new JumpController(90, 110, 1);
+    j.step(16, true, false);
+    expect(j.step(40, false, true)).toBe('ground');
+    expect(j.airJumpsRemaining).toBe(1);
+  });
+  it('no air jumps unless configured', () => {
+    const j = new JumpController(90, 110);
+    j.step(16, true, false);
+    j.step(120, false, false);
+    expect(j.step(16, false, true)).toBeNull();
   });
 });
 
