@@ -465,6 +465,130 @@ try {
     await ctx.close();
   }
 
+  // 3b. Every bullet in a burst lands (no hit invulnerability; only contact has a cooldown)
+  {
+    const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+    const { page, errs } = await stagePage(ctx, '?autostart=1&debug=1&squad=rurik,kemi,tari');
+    const dbg = (fn, ...args) =>
+      page.evaluate(([f, a]) => window.__hotRelay.debug[f](...a), [fn, args]);
+    await dbg('clearEnemies');
+    await waitState(page, (x) => x.grounded, 3000);
+    const health = () =>
+      page.evaluate(() => {
+        const m = window.__hotRelay.debug.scene.squad.active;
+        return m.hp + m.armour;
+      });
+    await dbg('setInvulnerable', 0);
+    const before = await health();
+    const s0 = await state(page);
+    // a rifleman-style 3-round burst from the right, 100 ms apart
+    for (let i = 0; i < 3; i++) {
+      await dbg('enemyShot', s0.x + 46, s0.feetY - 10, -1, 0);
+      await sleep(100);
+    }
+    await sleep(700);
+    const lost = before - (await health());
+    check('every bullet in a burst lands', lost === 3, `health + armour lost: ${lost} of 3`);
+    check('burst check ran without errors', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  // 3c. Playtest mode: a cleared run is recorded, the survey saves answers, data exports
+  {
+    const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+    const { page, errs } = await stagePage(ctx, '?autostart=1&debug=1&playtest=1');
+    const dbg = (fn, ...args) =>
+      page.evaluate(([f, a]) => window.__hotRelay.debug[f](...a), [fn, args]);
+    await dbg('clearEnemies');
+    await dbg('teleport', 4120, 236);
+    await page.keyboard.down('ArrowRight');
+    await waitState(page, (x) => x.status === 'clear', 8000);
+    await page.keyboard.up('ArrowRight');
+    await sleep(2600); // results screen after the clear pose
+    const keys = ['ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowDown', 'ArrowRight', 'ArrowRight', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'Enter'];
+    for (const k of keys) {
+      await page.keyboard.press(k);
+      await sleep(90);
+    }
+    await sleep(400);
+    await page.screenshot({ path: `${OUT}/15b-survey-done.png` });
+    const runs = await page.evaluate(() => window.__hotRelay.playtest.runs);
+    const last = runs[runs.length - 1];
+    check(
+      'playtest run recorded with survey answers',
+      runs.length >= 1 && last.outcome === 'clear' && last.survey?.fun === 4 && last.survey?.controls === 2 && last.survey?.again === 'yes',
+      last ? `${last.outcome}, ${(last.timeMs / 1000).toFixed(1)} s, survey ${JSON.stringify(last.survey)}` : 'no run',
+    );
+    const file = await page.evaluate(() => JSON.parse(window.__hotRelay.playtest.exportJson()));
+    check('playtest export has summary and runs', file.format === 'hot-relay-playtest' && file.summary.runs === runs.length, `${file.summary.runs} runs`);
+    check('playtest checks ran without errors', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  // 3d. Operators 5–8: sentry, grenades, shield pulse, KAI-7 counter-blast
+  {
+    const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+    const { page, errs } = await stagePage(ctx, '?autostart=1&debug=1&squad=tomas,farida,sione');
+    const dbg = (fn, ...args) =>
+      page.evaluate(([f, a]) => window.__hotRelay.debug[f](...a), [fn, args]);
+    const sc = (fn) => page.evaluate(fn);
+    await dbg('clearEnemies'); // nobody shoots back, so the swap order is only ours
+    await dbg('teleport', 1180, 236);
+    await waitState(page, (x) => x.grounded, 3000);
+    await sleep(1700); // swap cooldown from the start
+    // Tomás leads; swap round to him later. First Farida: blast jump, then a grenade.
+    await page.keyboard.press('KeyC');
+    await sleep(900);
+    let s = await state(page);
+    check('Farida tags in with a blast jump', s.active === 'farida', `active ${s.active}`);
+    await waitState(page, (x) => x.grounded, 3000);
+    await page.keyboard.press('KeyX');
+    await sleep(120);
+    const flying = await sc(() => window.__hotRelay.debug.scene.grenades.group.countActive(true));
+    await sleep(2600);
+    const left = await sc(() => window.__hotRelay.debug.scene.grenades.group.countActive(true));
+    check('Farida throws a grenade that explodes', flying >= 1 && left === 0, `in flight ${flying}, after ${left}`);
+    // Sione: shield pulse gives every standing member +1 armour
+    await sc(() => window.__hotRelay.debug.scene.squad.members.forEach((m) => (m.armour = 0)));
+    await sleep(1700);
+    await page.keyboard.press('KeyC');
+    await sleep(200);
+    const arm = await sc(() => window.__hotRelay.debug.scene.squad.members.map((m) => m.armour));
+    s = await state(page);
+    check('Sione tags in with a shield pulse (+1 armour each)', s.active === 'sione' && arm.every((a) => a >= 1), `active ${s.active}, armour ${arm.join('/')}`);
+    // Tomás: sentry lands and shoots at enemies in range
+    await sleep(1700);
+    await page.keyboard.press('KeyC');
+    await sleep(1600);
+    const sentry = await sc(() => !!window.__hotRelay.debug.scene.sentry);
+    s = await state(page);
+    check('Tomás tags in and drops a sentry', s.active === 'tomas' && sentry, `active ${s.active}, sentry ${sentry}`);
+    check('operators 5–7 ran without errors', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+  {
+    const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+    const { page, errs } = await stagePage(ctx, '?autostart=1&debug=1&squad=kai7,kemi,rurik');
+    const dbg = (fn, ...args) =>
+      page.evaluate(([f, a]) => window.__hotRelay.debug[f](...a), [fn, args]);
+    await dbg('clearEnemies');
+    await waitState(page, (x) => x.grounded, 3000);
+    await dbg('setInvulnerable', 0);
+    const s0 = await state(page);
+    for (let i = 0; i < 3; i++) {
+      await dbg('enemyShot', s0.x + 46, s0.feetY - 10, -1, 0);
+      await sleep(260);
+    }
+    await sleep(80);
+    const r = await page.evaluate(() => {
+      const sc = window.__hotRelay.debug.scene;
+      return { charge: sc.absorbCharge, bolts: sc.pBullets.group.countActive(true), armour: sc.squad.active.armour };
+    });
+    check('KAI-7 turns 3 absorbed hits into a counter-blast', r.charge === 0 && r.bolts >= 8, `bolts ${r.bolts}, armour ${r.armour}`);
+    check('KAI-7 check ran without errors', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
   // 4. Solo mode (H2 baseline)
   {
     const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { SCENES } from '../config/constants';
-import { saves } from '../systems/services';
+import { playtest, saves } from '../systems/services';
 import { sfx } from '../systems/Sfx';
 import { telemetry } from '../systems/Telemetry';
 import { FLAGS } from '../systems/flags';
@@ -16,10 +16,11 @@ export class BootScene extends Phaser.Scene {
   async create(): Promise<void> {
     input.attach();
     telemetry.debug = FLAGS.debug;
-    const [data] = await Promise.all([saves.load(), loadFonts()]);
+    const [data] = await Promise.all([saves.load(), loadFonts(), playtest.load()]);
+    if (FLAGS.playtest !== null && FLAGS.playtest !== playtest.enabled) await playtest.setEnabled(FLAGS.playtest);
     sfx.setVolume(data.settings.volume);
     telemetry.log('session_start', { ...telemetry.context(), mode: FLAGS.mode });
-    window.__hotRelay = { telemetry };
+    window.__hotRelay = { telemetry, playtest };
     document.getElementById('boot')?.remove();
     this.scene.start(SCENES.preload);
   }

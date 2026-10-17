@@ -33,6 +33,8 @@ Reload and recoil are layered on the arm.
 | `fx-dust`, `fx-drop`, `fx-bubble`                    | Dust, droplets, bubbles                    | Particle sheets                                            | P      |
 | `fx-tuft`                                            | Grass tuft that bends in wind / rotor wash | 2–3 foliage variants                                       | P      |
 | `mine`, `mine-lamp`                                  | Tethered naval mine                        | Painted mine + lamp glow                                   | P      |
+| `sentry-base`, `sentry-gun`                          | Tomás's sentry (gun pivots on its left edge) | Painted tripod + turret head                             | P      |
+| `grenade`                                            | Farida's grenade                           | Painted grenade, 2-frame spin                              | P      |
 | `eel`, `eel-eye`                                     | Eel drone                                  | Painted drone, 4-frame swim cycle                          | P      |
 | `grate`, `cache`                                     | Breakable grate, supply cache              | Painted props + broken-grate debris                        | P      |
 | `heli-body`, `heli-rotor`, `heli-blade`, `heli-tail` | Insertion helicopter                       | Painted helicopter; door anchor at (58, 27) in 96×40 units | P      |

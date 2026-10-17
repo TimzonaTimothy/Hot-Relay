@@ -10,6 +10,7 @@ const base = env?.BASE_PATH || './';
 
 export default defineConfig({
   base,
+  define: { __BUILD__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')) },
   build: {
     target: 'es2022',
     assetsInlineLimit: 0,

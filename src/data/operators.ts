@@ -9,13 +9,30 @@
  * - Mei-Lin (recon/marksman): fragile, hard-hitting, long breath.
  * - Tari (amphibious): ordinary on land, dominant in water: fast swimmer, 30 s of air,
  *   a speargun that works fully underwater.
- * Squads take three of the four; the order is the relay order.
+ * - Tomás (engineer): drops an automatic sentry on entry; his own carbine is weak.
+ * - Farida (demolition): lobbed grenades with splash (useless point-blank); blast-jumps in.
+ * - Sione (support): makes the bench heal faster; a shield pulse on entry clears enemy fire
+ *   and gives the whole squad armour. Low damage.
+ * - KAI-7 (experimental android): fast and fragile; armour hits charge a counter-blast, but
+ *   its armour drains while it is active. Locked until a stage is cleared.
+ * Squads take three of the roster; the order is the relay order.
  */
 import type { RigId } from '../art/characters';
 import { WEAPONS, type WeaponDef, type WeaponId } from './weapons';
 
-export type EntryAttack = 'slide' | 'pound' | 'pierce' | 'surge';
-export type OperatorId = 'kemi' | 'rurik' | 'meilin' | 'tari';
+export type EntryAttack =
+  | 'slide'
+  | 'pound'
+  | 'pierce'
+  | 'surge'
+  | 'sentry'
+  | 'blast'
+  | 'pulse'
+  | 'phase';
+export type OperatorId = 'kemi' | 'rurik' | 'meilin' | 'tari' | 'tomas' | 'farida' | 'sione' | 'kai7';
+
+/** How an operator is unlocked; absent = available from the start. */
+export type Unlock = 'firstClear';
 
 export interface SwimProfile {
   /** Top swimming speed in px/s. */
@@ -51,6 +68,13 @@ export interface OperatorDef {
   weapon: WeaponDef;
   entry: EntryAttack;
   entryLabel: string;
+  /** While this operator is in the squad (benched or active), bench armour regen is this much faster. */
+  squadRegenBoost?: number;
+  /** Armour hits charge a counter-blast; it fires after this many. */
+  absorbCharge?: number;
+  /** Loses one armour point every this many ms while active. */
+  armourDrainMs?: number;
+  unlock?: Unlock;
 }
 
 const def = (o: Omit<OperatorDef, 'weapon'>): OperatorDef => ({
@@ -127,7 +151,91 @@ export const OPERATORS: readonly OperatorDef[] = [
     entry: 'surge',
     entryLabel: 'Surge dash',
   }),
+  def({
+    id: 'tomas',
+    name: 'Tomás',
+    role: 'Engineer',
+    blurb: 'Drops a sentry on arrival. Weak carbine.',
+    color: 0xf2d13a,
+    accent: 0x6e5a12,
+    rig: 'tomas',
+    maxHp: 3,
+    maxArmour: 1,
+    runSpeed: 116,
+    jumpVelocity: 318,
+    swim: { speed: 58, accel: 340, buoyancy: 0.3, oxygenMs: 8000 },
+    weapons: ['forge', 'p9'],
+    entry: 'sentry',
+    entryLabel: 'Sentry drop',
+  }),
+  def({
+    id: 'farida',
+    name: 'Farida',
+    role: 'Demolition',
+    blurb: 'Lobs grenades. Useless point-blank.',
+    color: 0xe0533d,
+    accent: 0x6e1f17,
+    rig: 'farida',
+    maxHp: 3,
+    maxArmour: 1,
+    runSpeed: 120,
+    jumpVelocity: 325,
+    swim: { speed: 60, accel: 360, buoyancy: 0.35, oxygenMs: 8000 },
+    weapons: ['tremor', 'p9'],
+    entry: 'blast',
+    entryLabel: 'Blast jump',
+  }),
+  def({
+    id: 'sione',
+    name: 'Sione',
+    role: 'Support',
+    blurb: 'Bench heals faster. Shield pulse on entry.',
+    color: 0xb48cff,
+    accent: 0x4a2f7a,
+    rig: 'sione',
+    maxHp: 3,
+    maxArmour: 2,
+    runSpeed: 112,
+    jumpVelocity: 315,
+    swim: { speed: 74, accel: 420, buoyancy: 0.5, oxygenMs: 14000 },
+    weapons: ['tala', 'p9'],
+    entry: 'pulse',
+    entryLabel: 'Shield pulse',
+    squadRegenBoost: 1.75,
+  }),
+  def({
+    id: 'kai7',
+    name: 'KAI-7',
+    role: 'Experimental',
+    blurb: 'Absorbs hits into a counter-blast. Armour drains.',
+    color: 0x7ff3ff,
+    accent: 0x1b5f6b,
+    rig: 'kai7',
+    maxHp: 2,
+    maxArmour: 3,
+    runSpeed: 136,
+    jumpVelocity: 340,
+    // an android: heavy frame sinks slowly, no lungs to drown with for a long time
+    swim: { speed: 52, accel: 300, buoyancy: -0.2, oxygenMs: 60000 },
+    weapons: ['volt', 'p9'],
+    entry: 'phase',
+    entryLabel: 'Phase dash',
+    absorbCharge: 3,
+    armourDrainMs: 6000,
+    unlock: 'firstClear',
+  }),
 ];
+
+/** Whether an operator can be picked, given how many stages have been cleared. */
+export function isUnlocked(op: OperatorDef, stagesCleared: number): boolean {
+  if (op.unlock === 'firstClear') return stagesCleared > 0;
+  return true;
+}
+
+/** Plain-language unlock condition for the squad screen. */
+export function unlockHint(op: OperatorDef): string {
+  return op.unlock === 'firstClear' ? 'Clear a stage to unlock' : '';
+}
 
 export const OPERATOR_BY_ID = Object.fromEntries(OPERATORS.map((o) => [o.id, o])) as Record<
   OperatorId,

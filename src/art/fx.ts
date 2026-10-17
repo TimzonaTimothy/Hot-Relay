@@ -272,6 +272,41 @@ export function generateFxArt(scene: Phaser.Scene): void {
     inked(c, '#3a414b', 0.4);
   });
 
+  // Tomás's sentry: tripod base with a yellow hazard band (feet at the bottom centre) …
+  tex('sentry-base', 14, 10, (c) => {
+    c.strokeStyle = INK;
+    c.lineWidth = 0.9;
+    c.beginPath();
+    c.moveTo(7, 4);
+    c.lineTo(1.5, 9.5);
+    c.moveTo(7, 4);
+    c.lineTo(12.5, 9.5);
+    c.moveTo(7, 4);
+    c.lineTo(7, 9.5);
+    c.stroke();
+    roundRect(c, 3, 1.4, 8, 4, 1.2);
+    inked(c, '#4a5058', 0.45);
+    c.fillStyle = '#f2d13a';
+    c.fillRect(3.6, 3.4, 6.8, 0.9);
+  });
+  // … and its gun, pointing right from the pivot on its left edge.
+  tex('sentry-gun', 12, 5, (c) => {
+    roundRect(c, 0.4, 0.6, 7, 3.8, 1.2);
+    inked(c, '#2d3238', 0.45);
+    roundRect(c, 7, 1.7, 4.6, 1.6, 0.5);
+    inked(c, '#3a3f45', 0.4);
+    c.fillStyle = '#ff5a36';
+    c.fillRect(2, 1.4, 1, 1);
+  });
+  // Farida's grenade: olive shell with a red band.
+  tex('grenade', 5, 5, (c) => {
+    c.beginPath();
+    c.arc(2.5, 2.5, 1.9, 0, Math.PI * 2);
+    inked(c, '#5d6b3c', 0.4);
+    c.fillStyle = '#e0533d';
+    c.fillRect(0.7, 2.2, 3.6, 0.6);
+  });
+
   generateHelicopter(scene);
 }
 

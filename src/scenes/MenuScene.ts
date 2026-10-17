@@ -7,7 +7,7 @@ import { CANVAS_H, CANVAS_W, SCENES } from '../config/constants';
 import { MenuList } from '../ui/MenuList';
 import { FLAGS } from '../systems/flags';
 import { input } from '../systems/InputManager';
-import { saves } from '../systems/services';
+import { playtest, saves } from '../systems/services';
 import { sfx } from '../systems/Sfx';
 import { settingsItems } from '../ui/settingsItems';
 import { formatTime } from '../systems/rank';
@@ -122,7 +122,7 @@ export class MenuScene extends Phaser.Scene {
       .text(
         LEFT + 4,
         212,
-        'FOUR OPERATORS  ·  PICK THREE  ·  ONE RELAY',
+        'EIGHT OPERATORS  ·  PICK THREE  ·  ONE RELAY',
         txt('hud', 26, CSSC.bone, { letterSpacing: 3 }),
       )
       .setOrigin(0, 0.5)
@@ -241,6 +241,9 @@ export class MenuScene extends Phaser.Scene {
       { label: () => 'Deploy', action: () => this.play() },
       { label: () => 'Settings', action: () => this.showSettings() },
     ];
+    // playtest mode (?playtest=1) or debug: see and export the recorded runs (ANALYTICS-03)
+    if (playtest.enabled || FLAGS.debug)
+      items.push({ label: () => 'Playtest data', action: () => this.scene.start(SCENES.playtest) });
     if (FLAGS.debug) {
       items.push({
         label: () => `Mode: ${this.mode === 'relay' ? 'Relay' : 'Solo'}`,

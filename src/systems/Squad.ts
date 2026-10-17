@@ -54,6 +54,8 @@ export class Squad {
   /** Counters for telemetry and rank. */
   swaps = 0;
   downs = 0;
+  /** Time towards the active operator's next armour drain (KAI-7). */
+  private drainMs = 0;
 
   constructor(
     defs: readonly OperatorDef[],
@@ -100,6 +102,7 @@ export class Squad {
     this.activeIndex = this.nextStanding();
     this.swapCooldownLeft = this.opts.swapCooldownMs;
     this.swaps++;
+    this.drainMs = 0;
     return this.activeIndex;
   }
 
@@ -133,6 +136,7 @@ export class Squad {
     const next = this.nextStanding();
     if (next === -1) return { kind: 'allDown' };
     this.activeIndex = next;
+    this.drainMs = 0;
     // An automatic tag-in should never be blocked by the manual swap cooldown that follows it.
     this.swapCooldownLeft = this.opts.swapCooldownMs;
     return { kind: 'swapped', to: next };
@@ -177,8 +181,30 @@ export class Squad {
   }
 
   /** Advance timers by one fixed step. Benched, standing operators regain armour and air. */
+  /**
+   * Bench armour regen speed-up from support operators (Sione) standing in the squad,
+   * benched or active. The strongest boost applies; they do not stack.
+   */
+  get benchRegenBoost(): number {
+    let boost = 1;
+    for (const m of this.members) if (!m.down) boost = Math.max(boost, m.def.squadRegenBoost ?? 1);
+    return boost;
+  }
+
   tick(dtMs: number): void {
     this.swapCooldownLeft = Math.max(0, this.swapCooldownLeft - dtMs);
+    const regenMs = this.opts.benchArmourRegenMs / this.benchRegenBoost;
+    // operators that drain (KAI-7) lose armour while they are the active one
+    const a = this.active;
+    if (a.def.armourDrainMs && !a.down && a.armour > 0) {
+      this.drainMs += dtMs;
+      while (this.drainMs >= a.def.armourDrainMs && a.armour > 0) {
+        this.drainMs -= a.def.armourDrainMs;
+        a.armour--;
+      }
+    } else {
+      this.drainMs = 0;
+    }
     this.members.forEach((m, i) => {
       if (i !== this.activeIndex && !m.down) {
         m.oxygenMs = Math.min(
@@ -193,8 +219,8 @@ export class Squad {
         return;
       }
       m.regenMs += dtMs;
-      while (m.regenMs >= this.opts.benchArmourRegenMs && m.armour < m.def.maxArmour) {
-        m.regenMs -= this.opts.benchArmourRegenMs;
+      while (m.regenMs >= regenMs && m.armour < m.def.maxArmour) {
+        m.regenMs -= regenMs;
         m.armour++;
       }
     });

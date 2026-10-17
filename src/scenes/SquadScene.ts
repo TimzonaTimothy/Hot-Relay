@@ -1,13 +1,14 @@
 /**
- * Squad select: pick three of the four operators (one in solo mode). The order you pick them
+ * Squad select: pick three operators from the roster (one in solo mode), four cards a page. The order you pick them
  * is the relay order; the first is the lead who rides the rope down in the insertion.
  *
- * Keyboard/gamepad: left/right moves, Jump/Fire toggles, move onto DEPLOY (or press down) and
- * Jump to start; Esc/Start goes back. Touch: tap a card to toggle, tap DEPLOY.
+ * Keyboard/gamepad: left/right moves (and turns the page), Jump/Fire toggles, move onto DEPLOY
+ * (or press down) and Jump to start; Esc/Start goes back. Touch: tap a card to toggle, the
+ * arrows to turn the page, DEPLOY to start. Locked operators show how to unlock them.
  */
 import Phaser from 'phaser';
 import { CANVAS_H, CANVAS_W, SCENES } from '../config/constants';
-import { OPERATORS, resolveSquad, type OperatorDef } from '../data/operators';
+import { OPERATORS, isUnlocked, resolveSquad, unlockHint, type OperatorDef } from '../data/operators';
 import { WEAPONS } from '../data/weapons';
 import { Rig } from '../entities/Rig';
 import { input } from '../systems/InputManager';
@@ -23,6 +24,11 @@ const CARD_H = 330;
 const GAP = 14;
 const TOP = 104;
 const LEFT = (CANVAS_W - (CARD_W * 4 + GAP * 3)) / 2;
+/** Cards per page. */
+const PAGE = 4;
+/** Cursor index of the DEPLOY button (after every card). */
+const DEPLOY = OPERATORS.length;
+const PAGES = Math.ceil(OPERATORS.length / PAGE);
 
 /** Stat ranges for the bars (min..max across the roster, with a little headroom). */
 const STATS: Array<{ label: string; get: (o: OperatorDef) => number; lo: number; hi: number }> = [
@@ -35,9 +41,13 @@ const STATS: Array<{ label: string; get: (o: OperatorDef) => number; lo: number;
 interface CardView {
   op: OperatorDef;
   x: number;
+  page: number;
+  locked: boolean;
   rig: Rig;
   slot: Phaser.GameObjects.Text;
   zone: Phaser.GameObjects.Zone;
+  /** Every text on the card, shown only on its page. */
+  texts: Phaser.GameObjects.Text[];
 }
 
 export class SquadScene extends Phaser.Scene {
@@ -49,6 +59,10 @@ export class SquadScene extends Phaser.Scene {
   private deployText!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
   private leaving = false;
+  private page = 0;
+  private pageText!: Phaser.GameObjects.Text;
+  private notice = '';
+  private noticeMs = 0;
 
   constructor() {
     super(SCENES.squad);
@@ -65,7 +79,13 @@ export class SquadScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(PALETTE.ink);
     new Backdrop(this, { drift: 0.4, dim: 0.45 });
     const saved = saves.data.lastSquad;
-    this.picked = resolveSquad(saved.length ? saved : undefined, this.need);
+    const cleared = saves.data.stats.runsCleared;
+    this.picked = resolveSquad(saved.length ? saved : undefined, this.need).filter((o) =>
+      isUnlocked(o, cleared),
+    );
+    this.page = 0;
+    this.cursor = 0;
+    this.notice = '';
 
     this.add
       .text(LEFT, 36, 'ASSEMBLE THE RELAY', txt('display', 40, CSSC.bone))
@@ -84,13 +104,18 @@ export class SquadScene extends Phaser.Scene {
 
     this.g = this.add.graphics().setDepth(1);
     OPERATORS.forEach((op, i) => {
-      const x = LEFT + i * (CARD_W + GAP);
+      const x = LEFT + (i % PAGE) * (CARD_W + GAP);
+      const page = Math.floor(i / PAGE);
+      const locked = !isUnlocked(op, cleared);
       const rig = new Rig(this, op.rig, op.weapons[0], 3, 4.4);
-      this.add
-        .text(x + 24, TOP + 162, op.name.toUpperCase(), txt('display', 26, CSSC.bone))
-        .setOrigin(0, 0)
-        .setDepth(3);
-      this.add
+      const texts: Phaser.GameObjects.Text[] = [];
+      texts.push(
+        this.add
+          .text(x + 24, TOP + 162, op.name.toUpperCase(), txt('display', 26, CSSC.bone))
+          .setOrigin(0, 0)
+          .setDepth(3),
+      );
+      const role = this.add
         .text(
           x + 26,
           TOP + 194,
@@ -98,23 +123,30 @@ export class SquadScene extends Phaser.Scene {
           txt('hud', 20, css(op.color), { letterSpacing: 3 }),
         )
         .setDepth(3);
-      this.add
-        .text(
-          x + 26,
-          TOP + 218,
-          op.blurb,
-          txt('body', 12, CSSC.muted, { wordWrap: { width: CARD_W - 44 } }),
-        )
-        .setDepth(3);
-      STATS.forEach((s, k) => {
+      texts.push(role);
+      texts.push(
         this.add
-          .text(x + 26, TOP + 250 + k * 15, s.label, txt('hud', 15, CSSC.dim, { letterSpacing: 2 }))
-          .setDepth(3);
+          .text(
+            x + 26,
+            TOP + 218,
+            locked ? `LOCKED · ${unlockHint(op)}` : op.blurb,
+            txt('body', 12, locked ? CSSC.signal : CSSC.muted, { wordWrap: { width: CARD_W - 44 } }),
+          )
+          .setDepth(3),
+      );
+      STATS.forEach((s, k) => {
+        texts.push(
+          this.add
+            .text(x + 26, TOP + 250 + k * 15, s.label, txt('hud', 15, CSSC.dim, { letterSpacing: 2 }))
+            .setDepth(3),
+        );
       });
       const weapons = op.weapons.map((w) => WEAPONS[w].short).join(' + ');
-      this.add
-        .text(x + 26, TOP + CARD_H - 22, weapons, txt('hud', 17, CSSC.bone, { letterSpacing: 2 }))
-        .setDepth(3);
+      texts.push(
+        this.add
+          .text(x + 26, TOP + CARD_H - 22, weapons, txt('hud', 17, CSSC.bone, { letterSpacing: 2 }))
+          .setDepth(3),
+      );
       const slot = this.add
         .text(x + CARD_W - 30, TOP + 26, '', txt('display', 34, CSSC.ink))
         .setOrigin(0.5)
@@ -124,12 +156,34 @@ export class SquadScene extends Phaser.Scene {
         .setOrigin(0)
         .setInteractive({ useHandCursor: true });
       zone.on('pointerdown', () => {
+        if (this.page !== page) return;
         sfx.unlock();
         this.cursor = i;
         this.toggle(op);
       });
-      this.cards.push({ op, x, rig, slot, zone });
+      texts.push(slot);
+      this.cards.push({ op, x, page, locked, rig, slot, zone, texts });
     });
+
+    // page arrows and counter, top right
+    this.pageText = this.add
+      .text(CANVAS_W - LEFT - 70, 40, '', txt('hud', 26, CSSC.bone, { letterSpacing: 3 }))
+      .setOrigin(0.5)
+      .setDepth(3);
+    const arrow = (dx: number, label: string, dir: 1 | -1) =>
+      this.add
+        .text(CANVAS_W - LEFT - 70 + dx, 40, label, txt('display', 30, CSSC.emberHi))
+        .setOrigin(0.5)
+        .setDepth(3)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          sfx.unlock();
+          this.turnPage(dir);
+        });
+    if (PAGES > 1) {
+      arrow(-58, '‹', -1);
+      arrow(58, '›', 1);
+    }
 
     this.deployText = this.add
       .text(CANVAS_W - LEFT - 40, TOP + CARD_H + 48, 'DEPLOY', txt('display', 30, CSSC.bone))
@@ -141,7 +195,7 @@ export class SquadScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => {
         sfx.unlock();
-        this.cursor = 4;
+        this.cursor = DEPLOY;
         this.deploy();
       });
     this.hint = this.add
@@ -153,7 +207,20 @@ export class SquadScene extends Phaser.Scene {
     this.cameras.main.fadeIn(220, 7, 11, 17);
   }
 
+  private turnPage(dir: 1 | -1): void {
+    this.page = (this.page + dir + PAGES) % PAGES;
+    if (this.cursor !== DEPLOY) this.cursor = Math.min(DEPLOY - 1, this.page * PAGE);
+    sfx.ui();
+  }
+
   private toggle(op: OperatorDef): void {
+    const card = this.cards.find((c) => c.op === op);
+    if (card?.locked) {
+      sfx.dryFire();
+      this.notice = `${op.name.toUpperCase()} IS LOCKED · ${unlockHint(op).toUpperCase()}`;
+      this.noticeMs = 2200;
+      return;
+    }
     const i = this.picked.indexOf(op);
     if (i >= 0) this.picked.splice(i, 1);
     else if (this.picked.length < this.need) this.picked.push(op);
@@ -162,7 +229,7 @@ export class SquadScene extends Phaser.Scene {
       this.picked[this.picked.length - 1] = op;
     }
     sfx.ui();
-    if (this.picked.length === this.need && i < 0) this.cursor = 4;
+    if (this.picked.length === this.need && i < 0) this.cursor = DEPLOY;
   }
 
   private deploy(): void {
@@ -187,10 +254,13 @@ export class SquadScene extends Phaser.Scene {
     input.update();
     const f = input.consume();
     if (!this.leaving) {
-      if (f.leftPressed) this.cursor = this.cursor === 4 ? 3 : Math.max(0, this.cursor - 1);
-      if (f.rightPressed) this.cursor = Math.min(4, this.cursor + 1);
-      if (f.downPressed) this.cursor = 4;
-      if (f.upPressed && this.cursor === 4) this.cursor = 3;
+      if (f.leftPressed)
+        this.cursor = this.cursor === DEPLOY ? Math.min(DEPLOY - 1, this.page * PAGE + PAGE - 1) : Math.max(0, this.cursor - 1);
+      if (f.rightPressed) this.cursor = Math.min(DEPLOY, this.cursor + 1);
+      if (f.downPressed) this.cursor = DEPLOY;
+      if (f.upPressed && this.cursor === DEPLOY) this.cursor = Math.min(DEPLOY - 1, this.page * PAGE);
+      // moving the cursor onto another page's card turns the page
+      if (this.cursor < DEPLOY) this.page = Math.floor(this.cursor / PAGE);
       if (f.leftPressed || f.rightPressed || f.downPressed || f.upPressed) sfx.ui();
       if (f.jumpPressed || f.firePressed || f.confirmPressed) {
         sfx.unlock();
@@ -209,6 +279,7 @@ export class SquadScene extends Phaser.Scene {
       window.__hotRelay.state = {
         scene: 'squad',
         cursor: this.cursor,
+        page: this.page,
         picked: this.picked.map((o) => o.id),
       };
   }
@@ -216,7 +287,13 @@ export class SquadScene extends Phaser.Scene {
   private draw(delta: number): void {
     const g = this.g;
     g.clear();
+    this.noticeMs = Math.max(0, this.noticeMs - delta);
+    this.pageText.setText(PAGES > 1 ? `${this.page + 1} / ${PAGES}` : '');
     this.cards.forEach((c, i) => {
+      const shown = c.page === this.page;
+      c.texts.forEach((t) => t.setVisible(shown));
+      c.rig.setVisible(shown);
+      if (!shown) return;
       const order = this.picked.indexOf(c.op);
       const on = order >= 0;
       const focus = this.cursor === i;
@@ -262,10 +339,18 @@ export class SquadScene extends Phaser.Scene {
         c.x + CARD_W / 2 + 8,
         TOP + 148,
       );
-      c.rig.setAlpha(on || focus ? 1 : 0.55);
+      c.rig.setAlpha(c.locked ? 0.18 : on || focus ? 1 : 0.55);
+      if (c.locked) {
+        // padlock over the silhouette
+        const lx = c.x + CARD_W / 2 + 8;
+        const ly = TOP + 92;
+        g.lineStyle(5, PALETTE.steelHi, 0.9).strokeCircle(lx, ly - 14, 13);
+        g.fillStyle(PALETTE.steelHi, 0.95).fillRoundedRect(lx - 20, ly - 10, 40, 30, 5);
+        g.fillStyle(PALETTE.ink, 1).fillCircle(lx, ly + 3, 4);
+      }
     });
     const ready = this.picked.length === this.need;
-    const focusDeploy = this.cursor === 4;
+    const focusDeploy = this.cursor === DEPLOY;
     plate(g, CANVAS_W - LEFT - 250, TOP + CARD_H + 22, 250, 54, {
       skew: 18,
       fill: ready ? PALETTE.ember : PALETTE.steel,
@@ -285,7 +370,9 @@ export class SquadScene extends Phaser.Scene {
     );
     this.deployText.setColor(ready ? CSSC.ink : CSSC.dim);
     this.hint.setText(
-      ready
+      this.noticeMs > 0
+        ? this.notice
+        : ready
         ? `RELAY: ${this.picked.map((o) => o.name.toUpperCase()).join('  ›  ')}`
         : `Pick ${this.need - this.picked.length} more  ·  Jump/Fire or tap to pick  ·  Esc back`,
     );

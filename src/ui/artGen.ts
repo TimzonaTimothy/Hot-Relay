@@ -42,12 +42,20 @@ const SKIN: Record<OperatorDef['id'], number> = {
   rurik: 0xe0b49a,
   meilin: 0xd9a77f,
   tari: 0x4a2c1d,
+  tomas: 0x9c6b45,
+  farida: 0xa8714f,
+  sione: 0x7a4a2e,
+  kai7: 0xd5dde5,
 };
 const HAIR: Record<OperatorDef['id'], number> = {
   kemi: 0x1d120c,
   rurik: 0x8a5a2b,
   meilin: 0x15110f,
   tari: 0x0b0806,
+  tomas: 0x2a1a12,
+  farida: 0x2a1a12,
+  sione: 0x15100c,
+  kai7: 0x1b5f6b,
 };
 
 export function generateArt(scene: Phaser.Scene): void {
@@ -103,6 +111,28 @@ function portrait(scene: Phaser.Scene, op: OperatorDef): void {
       g.fillStyle(HAIR.meilin, 1).fillRect(12, 4, 2, 8).fillRect(3, 5, 1, 3); // ponytail
       g.fillStyle(0xd9ffd0, 1).fillRect(11, 7, 2, 1); // scope monocle glow
     }
+    if (op.id === 'tomas') {
+      g.fillStyle(op.color, 1).fillRect(1, 4, 14, 1); // hard-hat brim
+      g.fillStyle(HAIR.tomas, 1).fillRect(6, 9, 5, 1); // moustache
+      g.fillStyle(0xe8eef0, 1).fillRect(3, 14, 10, 1); // hi-vis stripe
+    }
+    if (op.id === 'farida') {
+      g.fillStyle(HAIR.farida, 1).fillRect(3, 1, 10, 4).fillRect(2, 3, 2, 4).fillRect(12, 3, 2, 3); // curls
+      g.fillStyle(0x0b0f14, 1).fillRect(4, 4, 8, 2); // goggles up
+      g.fillStyle(op.color, 1).fillRect(5, 4, 2, 1).fillRect(9, 4, 2, 1);
+      g.fillStyle(0x8a3a30, 1).fillRect(4, 12, 8, 2); // blast collar
+    }
+    if (op.id === 'sione') {
+      g.fillStyle(0x20252b, 1).fillRect(3, 7, 2, 2); // headset
+      g.fillStyle(op.color, 1).fillRect(5, 10, 3, 1); // boom mic
+    }
+    if (op.id === 'kai7') {
+      // faceless shell with a light visor
+      g.fillStyle(0xe8eef3, 1).fillRect(3, 1, 10, 11);
+      g.fillStyle(0x0d1a20, 1).fillRect(4, 6, 9, 2);
+      g.fillStyle(op.color, 1).fillRect(5, 6, 7, 1);
+      g.fillStyle(op.color, 1).fillRect(7, 14, 2, 2); // chest core
+    }
   });
 }
 
@@ -111,7 +141,25 @@ function weaponIcon(scene: Phaser.Scene, op: OperatorDef): void {
   withGfx(scene, `w-${op.id}`, 22, 8, (g) => {
     const c = PALETTE.bone;
     g.fillStyle(c, 1);
-    if (op.id === 'kemi') {
+    const w = op.weapons[0];
+    if (w === 'forge') {
+      // carbine: plain body, curved mag
+      g.fillRect(3, 2, 13, 3).fillRect(16, 3, 4, 1).fillRect(9, 5, 2, 3).fillRect(0, 3, 3, 2);
+    } else if (w === 'tremor') {
+      // grenade launcher: fat barrel, round cylinder
+      g.fillRect(2, 2, 6, 4).fillRect(8, 1, 10, 4).fillRect(5, 6, 2, 2);
+      g.fillCircle(8, 4, 3);
+    } else if (w === 'tala') {
+      // pump shotgun: long tube, pump grip
+      g.fillRect(0, 3, 9, 3).fillRect(9, 3, 12, 1).fillRect(12, 4, 5, 2).fillRect(5, 6, 2, 2);
+    } else if (w === 'volt') {
+      // energy repeater: rounded body, emitter
+      g.fillRect(3, 2, 14, 3).fillRect(17, 3, 3, 1).fillRect(8, 5, 2, 2);
+      g.fillStyle(op.color, 1).fillRect(9, 2, 1, 3).fillRect(12, 2, 1, 3).fillRect(19, 3, 2, 1);
+    } else if (w === 'riptide') {
+      // speargun: slim tube, spear tip
+      g.fillRect(4, 3, 12, 2).fillRect(16, 3, 4, 1).fillRect(20, 2, 2, 3).fillRect(7, 5, 2, 3);
+    } else if (op.id === 'kemi') {
       // compact SMG: short body, vertical mag, stubby barrel
       g.fillRect(4, 2, 11, 3).fillRect(15, 3, 4, 1).fillRect(8, 5, 2, 3).fillRect(1, 2, 3, 2);
     } else if (op.id === 'rurik') {

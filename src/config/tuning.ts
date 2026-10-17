@@ -31,8 +31,13 @@ export const TUNING = {
   crouchHeight: 12,
   standHeight: 20,
 
-  /** Invulnerability after taking a hit. */
-  hurtInvulnMs: 900,
+  /**
+   * After any hit, touching an enemy can't hurt again for this long (so standing in one doesn't
+   * drain you every frame). Bullets ignore it: every bullet in a burst lands.
+   */
+  contactCooldownMs: 900,
+  /** Invulnerability after falling out of the level and respawning at the last safe spot. */
+  pitRespawnInvulnMs: 900,
   /** Invulnerability when an operator tags in (manual or automatic). */
   tagInInvulnMs: 550,
   /** Invulnerability after the active operator goes down and the next one arrives. */
@@ -108,6 +113,18 @@ export const TUNING = {
     benchRefillRate: 2,
     lowFrac: 0.3,
   },
+
+  // --- operators 5–8 (Tomás, Farida, Sione, KAI-7)
+  /** Tomás's sentry: dropped on tag-in, one at a time. */
+  sentry: { lifeMs: 9000, range: 170, fireRate: 4, damage: 0.8, bulletSpeed: 360 },
+  /** Farida's blast jump: an explosion at her feet that hurts enemies only, and a launch. */
+  blast: { radius: 40, damage: 3, launch: 1.3 },
+  /** Sione's shield pulse: wipes enemy bullets, pushes and stuns enemies, +1 armour to the squad. */
+  pulse: { radius: 96, stunMs: 900, knock: 160 },
+  /** KAI-7's phase dash: intangible, passes through enemies and hits each once. */
+  phase: { ms: 260, invulnMs: 520, damage: 2 },
+  /** KAI-7's counter-blast after absorbing hits: a ring of bolts. */
+  counter: { bolts: 10, damage: 1.5, speed: 380, pierce: 2 },
 } as const;
 
 export type Tuning = typeof TUNING;

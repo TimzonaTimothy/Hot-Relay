@@ -8,6 +8,7 @@ import { HudScene } from './scenes/HudScene';
 import { PauseScene } from './scenes/PauseScene';
 import { ResultsScene } from './scenes/ResultsScene';
 import { StressScene } from './scenes/StressScene';
+import { PlaytestScene } from './scenes/PlaytestScene';
 import { SquadScene } from './scenes/SquadScene';
 import { registerServiceWorker } from './systems/pwa';
 import { input } from './systems/InputManager';
@@ -56,6 +57,7 @@ const game = new Phaser.Game({
     PauseScene,
     ResultsScene,
     StressScene,
+    PlaytestScene,
   ],
 });
 

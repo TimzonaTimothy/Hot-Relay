@@ -59,4 +59,5 @@ export const SCENES = {
   results: 'Results',
   squad: 'Squad',
   stress: 'Stress',
+  playtest: 'Playtest',
 } as const;

@@ -7,6 +7,7 @@ import { settingsItems } from '../ui/settingsItems';
 import { input } from '../systems/InputManager';
 import { telemetry } from '../systems/Telemetry';
 import type { SquadMode } from '../systems/Squad';
+import type { StageScene } from './StageScene';
 
 export class PauseScene extends Phaser.Scene {
   private menu!: MenuList;
@@ -52,13 +53,15 @@ export class PauseScene extends Phaser.Scene {
 
   private restart(): void {
     telemetry.log('stage_quit', { reason: 'restart' });
+    (this.scene.get(SCENES.stage) as StageScene).endRun('restart');
     this.scene.stop(SCENES.hud);
     this.scene.stop();
-    this.scene.get(SCENES.stage).scene.restart({ mode: this.mode });
+    this.scene.get(SCENES.stage).scene.restart({ mode: this.mode, replay: true });
   }
 
   private quit(): void {
     telemetry.log('stage_quit', { reason: 'menu' });
+    (this.scene.get(SCENES.stage) as StageScene).endRun('quit');
     this.scene.stop(SCENES.hud);
     this.scene.stop(SCENES.stage);
     this.scene.start(SCENES.menu, { skipAttract: true });

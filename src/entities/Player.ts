@@ -56,6 +56,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   arsenal: Arsenal | null = null;
 
   invulnMs = 0;
+  /** Time left before enemy contact can hurt again (not bullets). */
+  contactCooldownMs = 0;
   dropThroughMs = 0;
   /** Set by the platform colliders during each physics step. */
   groundKind: GroundKind = null;
@@ -180,12 +182,17 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   /** A hit landed: knock back away from the source and play the hurt beat. */
-  knockback(fromX: number): void {
+  /**
+   * Push away from a hit. `hop` adds the small upward bounce (contact, blasts); bullet hits skip
+   * it, so the rest of a burst still meets the body instead of passing underneath.
+   */
+  knockback(fromX: number, hop = true): void {
     const dir = this.x >= fromX ? 1 : -1;
     const k = this.inWater ? 0.4 : 1;
+    const vy = this.arcadeBody.velocity.y;
     this.arcadeBody.setVelocity(
       dir * TUNING.hurtKnockX * k,
-      this.inWater ? this.arcadeBody.velocity.y : -TUNING.hurtKnockY,
+      this.inWater || !hop ? vy : -TUNING.hurtKnockY,
     );
     this.hurtPending = true;
     this.slideMs = 0;
@@ -203,6 +210,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   stepMovement(dtMs: number, inp: InputFrame): boolean {
     const body = this.arcadeBody;
     this.invulnMs = Math.max(0, this.invulnMs - dtMs);
+    this.contactCooldownMs = Math.max(0, this.contactCooldownMs - dtMs);
     this.dropThroughMs = Math.max(0, this.dropThroughMs - dtMs);
     this.waterJumpMs = Math.max(0, this.waterJumpMs - dtMs);
 

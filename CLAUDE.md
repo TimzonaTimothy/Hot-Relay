@@ -63,13 +63,15 @@ Run `npm run e2e` after gameplay changes.
 src/
   main.ts                 game config, scene list, service worker
   config/                 constants (sizes, colours, depths), tuning (feel numbers incl. water, air)
-  data/operators.ts       Kemi / Rurik / Mei-Lin / Tari: stats, swim profile, weapons, entry attack
+  data/operators.ts       8 operators (Kemi, Rurik, Mei-Lin, Tari, Tomás, Farida, Sione, KAI-7): stats,
+                          swim profile, weapons, entry attack, traits (squad regen boost, absorb, unlock)
   data/weapons.ts         weapon catalogue (fire rate, mag, reload, recoil, underwater rule)
   data/stages/            stage format + greybox01 layout (water volumes, hazards, insertion)
   art/                    PLACEHOLDER art drawn at boot: characters (rig atlas), fx (effects,
                           hazards, helicopter), stageArt (painted platforms), paint helpers
   entities/               Player (controller), Rig (cut-out visuals), Enemy, Rifleman,
-                          Hazards (Mine, EelDrone, Grate, Cache), BulletPool
+                          Hazards (Mine, EelDrone, Grate, Cache), BulletPool,
+                          Gadgets (Tomás's Sentry, Farida's GrenadePool)
   stage/                  visual-only helpers for StageScene: Effects, WaterView, Foliage,
                           CameraRig, Insertion (helicopter cinematic)
   scenes/                 Boot, Preload, Menu, Squad, Stage, Hud, Pause, Results, Stress
@@ -104,3 +106,5 @@ ASSETS.md                 every placeholder texture and sound, and what replaces
 - `?stage=stress` — TEST-01 stress scene (60 enemies, ~200 bullets, 10 s fps measurement).
 - `?autostart=1` — skip the menu (used by the smoke test); also skips the insertion.
 - `?squad=a,b,c` — squad in relay order; `?insertion=play|skip` — force or skip the opening cinematic.
+- `?playtest=1` / `?playtest=0` — playtest mode on/off (remembered): end-of-stage survey and
+  Menu → Playtest data export. Runs are always recorded locally (`systems/playtest.ts`).

@@ -4,7 +4,17 @@
  * magazines exist so reloads create short, readable windows of vulnerability.
  */
 
-export type WeaponId = 'kestrel' | 'bulwark' | 'needle' | 'riptide' | 'p9' | 'contractorRifle';
+export type WeaponId =
+  | 'kestrel'
+  | 'bulwark'
+  | 'needle'
+  | 'riptide'
+  | 'forge'
+  | 'tremor'
+  | 'tala'
+  | 'volt'
+  | 'p9'
+  | 'contractorRifle';
 
 /**
  * full: fires normally underwater (speargun).
@@ -37,6 +47,15 @@ export interface WeaponDef {
   /** Placeholder synth pitch for the shot sound. */
   pitch: number;
   tint?: number;
+  /** Rounds per trigger pull, fanned across spreadDeg (shotguns). Default 1. */
+  pellets?: number;
+  /** Round lifetime override in ms (short-range weapons). Default TUNING.bulletLifeMs. */
+  lifeMs?: number;
+  /**
+   * Fires a lobbed grenade instead of a bullet: it falls under gravity and explodes on impact.
+   * It only arms after armMs, so it cannot be used point-blank (Farida's weakness).
+   */
+  grenade?: { radius: number; gravity: number; armMs: number; fuseMs: number };
 }
 
 export const UNDERWATER_REDUCED = { speed: 0.42, life: 0.6, damage: 0.75 } as const;
@@ -114,6 +133,86 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     ejectsCasings: false,
     pitch: 640,
     tint: 0xbff6ee,
+  },
+  forge: {
+    // Tomás: a weak personal gun is his weakness; the sentry does the heavy lifting
+    id: 'forge',
+    name: 'Forge carbine',
+    short: 'CARB',
+    fireRate: 6,
+    damage: 0.8,
+    bulletSpeed: 360,
+    spreadDeg: 3,
+    pierce: 1,
+    bulletLength: 5,
+    magSize: 24,
+    reloadMs: 1000,
+    recoil: 1.1,
+    muzzle: 19,
+    underwater: 'reduced',
+    ejectsCasings: true,
+    pitch: 760,
+  },
+  tremor: {
+    // Farida: lobbed grenades with splash; arm after a short flight
+    id: 'tremor',
+    name: 'Tremor launcher',
+    short: 'GL',
+    fireRate: 1.6,
+    damage: 3,
+    bulletSpeed: 230,
+    spreadDeg: 0,
+    pierce: 1,
+    bulletLength: 4,
+    magSize: 6,
+    reloadMs: 1400,
+    recoil: 2.4,
+    muzzle: 19,
+    underwater: 'none',
+    ejectsCasings: false,
+    pitch: 220,
+    grenade: { radius: 30, gravity: 520, armMs: 140, fuseMs: 2200 },
+  },
+  tala: {
+    // Sione: a short-range pump shotgun, low damage per pellet
+    id: 'tala',
+    name: 'Tala shotgun',
+    short: 'SG',
+    fireRate: 2,
+    damage: 0.8,
+    bulletSpeed: 340,
+    spreadDeg: 10,
+    pierce: 1,
+    bulletLength: 3,
+    magSize: 6,
+    reloadMs: 1300,
+    recoil: 2.2,
+    muzzle: 20,
+    underwater: 'reduced',
+    ejectsCasings: true,
+    pitch: 300,
+    pellets: 5,
+    lifeMs: 300,
+  },
+  volt: {
+    // KAI-7: fast, light energy bolts
+    id: 'volt',
+    name: 'Volt repeater',
+    short: 'VOLT',
+    fireRate: 12,
+    damage: 0.7,
+    bulletSpeed: 460,
+    spreadDeg: 2,
+    pierce: 1,
+    bulletLength: 7,
+    magSize: 40,
+    reloadMs: 800,
+    recoil: 0.8,
+    muzzle: 19,
+    underwater: 'reduced',
+    ejectsCasings: false,
+    pitch: 1500,
+    tint: 0x7ff3ff,
   },
   p9: {
     id: 'p9',

@@ -47,6 +47,14 @@ Swimming into a quay wall at the surface climbs out automatically.
 | Rurik    | Heavy      | 4 / 2, slowest  | Bulwark LMG, heavier rounds              | Sinks and walks the bed; LMG can't fire | Ground-pound              |
 | Mei-Lin  | Recon      | 2 / 1           | Needle DMR, slow, hits hard, pierces     | Floats, 12 s of air                     | One piercing shot         |
 | Tari     | Amphibious | 3 / 1           | Riptide speargun (full power underwater) | Fastest swimmer, 30 s of air            | Surge dash (rams enemies) |
+| Tomás    | Engineer   | 3 / 1           | Forge carbine (weak)                     | 8 s of air, carbine weakened            | Sentry drop: a turret fights for 9 s |
+| Farida   | Demolition | 3 / 1           | Tremor launcher: lobbed grenades with splash, arm after a short flight (useless point-blank) | Launcher can't fire; 8 s of air | Blast jump (hurts enemies only) |
+| Sione    | Support    | 3 / 2           | Tala shotgun, 5 short-range pellets      | Good swimmer, 14 s of air               | Shield pulse: clears enemy fire, stuns, +1 armour to the squad |
+| KAI-7    | Experimental | 2 / 3, fast   | Volt repeater, fast light bolts          | Android: sinks slowly, 60 s before damage | Phase dash through enemies |
+
+Traits: while **Sione** is in the squad (benched or active) the bench regains armour 1.75× faster.
+**KAI-7** turns every 3 armour hits into a counter-blast of 10 bolts, but loses 1 armour every 6 s
+while active; it unlocks after the first stage clear. The squad screen shows four operators a page.
 
 Benched operators regain armour and air. When the active operator goes down, the next one tags
 in automatically; the run fails only when all three are down (retry from the last checkpoint).
@@ -62,8 +70,23 @@ Deploy `dist/` anywhere static (GitHub Pages via the included workflow, itch.io,
 - Debug overlay: add `?debug=1` (also makes the insertion skippable and adds `window.__hotRelay.debug` hooks)
 - Pick the squad: `?squad=tari,kemi,rurik` · force the opening cinematic: `?insertion=play` (or `skip`)
 
-Telemetry events are kept in memory for now (`window.__hotRelay.telemetry.records` in the
-browser console). Uploading them is Gate 4 (ANALYTICS-01).
+### Running a playtest (TEST-02 / TEST-03)
+
+Send testers the link with `?playtest=1` added (for H2, half of them also get `&mode=solo`).
+Playtest mode is remembered on their device until `?playtest=0`.
+
+1. Every stage attempt is recorded on the device: cleared or quit, play time, time to first
+   fight, operators down per section, swaps per minute, the control they mostly used, fps and
+   whether it was a replay.
+2. After each cleared stage a 3-question survey appears (fun 1–5, controls 1–5, play another
+   stage?). Skip is always available.
+3. When they're done: **Menu → Playtest data → Download file** (or **Copy results** and paste
+   it into a message). The screen also shows the Gate 4 numbers for that device.
+
+The file starts with a summary (3-minute sessions, clear rate by control for H4, relay vs solo
+and swaps per minute for H2, survey averages), followed by every run. Nothing is uploaded:
+there is no backend until Gate 4 passes. Telemetry events are also in memory
+(`window.__hotRelay.telemetry.records`); uploading them is ANALYTICS-01.
 
 ## Checks
 

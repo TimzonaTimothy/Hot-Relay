@@ -25,8 +25,8 @@ Keep this file in the repo root so Claude Code can read and update it.
 
 ## Now
 
-- **Ongoing:** SETUP-02 (owner must enable Pages + merge PR #2), PERF-01 (low-detail mode done; phone numbers to do), TEST-01 (needs 3 real devices — now also covers the character rigs, see PERF-01)
-- **Next up:** PERF-01 real-phone numbers (try `?detail=low`), CHAR-16 (second water enemy pass), RES-02…RES-07, TEST-02/03 playtests
+- **Ongoing:** SETUP-02 (PR #2 merged to main 2026-10-15; owner must enable Pages), PERF-01 (low-detail mode done; phone numbers to do), TEST-01 (needs 3 real devices — now also covers the character rigs, see PERF-01)
+- **Next up:** TEST-02/03 playtests — send testers `?playtest=1` links (see README → Running a playtest), PERF-01 real-phone numbers (try `?detail=low`), CHAR-16 (second water enemy pass), RES-02…RES-07
 - **Current gate:** G3 prototype + character/swimming/insertion vertical slice → G4 playtests
 - **Blocked:** H2 and H4 need 15–20 real testers (RES-13)
 - **Last session (2026-10-15):** Character system vertical slice: four data-driven operators (Tari added),
@@ -97,6 +97,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [ ] COMBAT-07 Loadout slot + Breacher shotgun (G5)
 - [ ] COMBAT-08 Mei-Lin Mark (weak-point bonus damage) (G5)
 - [ ] COMBAT-09 Weapon data in JSON for tuning (G5) — started: all weapon numbers live in src/data/weapons.ts
+- [x] COMBAT-10 Every enemy bullet lands: no invulnerability after a hit (kept for tag-ins and respawns), bullet hits push back without a hop; contact damage has a 900 ms cooldown (owner request) (done 2026-10-16)
 
 ## RELAY — Relay Swap
 
@@ -127,6 +128,11 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] CHAR-15 Stable side camera with ground anchor and water framing (G3) (done 2026-10-15)
 - [ ] CHAR-16 Water combat pass after playtests: eel tuning, more underwater threats (G5)
 - [ ] CHAR-17 Replace procedural poses with painted parts / hand-keyed animation (ART) (G5)
+- [x] CHAR-18 Tomás (Engineer): Forge carbine, sentry drop on tag-in (one at a time, 9 s) (owner request) (done 2026-10-16)
+- [x] CHAR-19 Farida (Demolition): Tremor launcher (lobbed grenades, arm after 140 ms), blast jump on tag-in (owner request) (done 2026-10-16)
+- [x] CHAR-20 Sione (Support): Tala shotgun, shield pulse on tag-in, bench armour regen ×1.75 while in the squad (owner request) (done 2026-10-16)
+- [x] CHAR-21 KAI-7 (Experimental): Volt repeater, phase dash, counter-blast after 3 absorbed armour hits, armour drain while active; unlocks after the first stage clear (Hard mode does not exist yet) (owner request) (done 2026-10-16)
+- [x] CHAR-22 Squad screen pages (4 cards a page), locked cards, portraits and weapon icons for all 8 (done 2026-10-16)
 - [~] PERF-01 Measure stage + stress on 3 real phones; if below target add a low-detail setting (G4) — **Low-detail mode done (2026-10-15):** Detail Auto/High/Low in Settings and Pause, `?detail=` flag; Low hides bg-mid/bg-near, water light shafts, grass tufts, contact shadows; Auto watches a rolling 5 s window of gameplay frames only (no cinematic, pause, hit-stop) and switches to Low once, with a small "Detail lowered" notice, if any window's median is below 50 fps; it never switches back up and manual High/Low wins (`systems/detail.ts`, unit tests, e2e checks). Measured: Apple-silicon Mac (headless SwiftShader) is capped at 60 fps before and after on stage and stress; uncapped, Low is ~16% faster than High on the stage, no change on stress. GitHub runner (no GPU): bot run 21–25 fps median; arena High p50 20 / p10 15 vs Low p50 20 / p10 20; stress 43–60 fps (varies by runner). The stage start is cheap (60 fps on CI), which is why Auto uses a rolling window. **Rig cost check (2026-10-15, `?debug=1&rigs=off` hides every rig, physics keeps running), arena fps p50/p10:** GitHub runner (no GPU, a floor, not a phone prediction), three runs — High rigs on 60/30, 59.5/30, 30/30; High rigs off 60/60, 59.5/30, 30/30; Low rigs on 60/60, 60/30, 60/30; Low rigs off 60/60, 60/30, 60/30. Apple-silicon Mac: 60/60 in all four (capped); uncapped timing there is unreliable (bimodal), so not used. **Conclusion: rigs are not the main cost.** Hiding them changed the median in no run; Low detail (the parallax/shaft/tuft/shadow layers) doubled it on the slowest runner (30 → 60). So the planned fix (pre-render enemy poses into sprite frames for Low, one image per enemy instead of five) is **not justified by this data — not planned**; revisit only if real phones show otherwise. The earlier 'Low does not lift the median' reading (one run, 20 vs 20) did not repeat. Next: measure on 3 real phones
 
 ## ENEMY — Enemies
@@ -272,7 +278,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 
 - [ ] ANALYTICS-01 Event endpoint + Postgres events table (G4)
 - [ ] ANALYTICS-02 Events: start, first fight, deaths by section, swaps, clear, replay, session length, offline (G4) — started: events logged in memory (window.__hotRelay.telemetry); upload is ANALYTICS-01
-- [ ] ANALYTICS-03 End-of-stage 3-question survey (G4)
+- [x] ANALYTICS-03 End-of-stage 3-question survey (G4) — `?playtest=1`: survey (fun 1–5, controls 1–5, play another?) after each clear; every attempt recorded on the device (outcome, time, first fight, downs per section, swaps/min, main input, fps, replay); Menu → Playtest data shows the Gate 4 numbers and exports a JSON file (copy / download); no backend (done 2026-10-16)
 - [ ] ANALYTICS-04 fps sampling (p50, p10) by device (G4)
 - [ ] ANALYTICS-05 Error tracking in client + API (G6)
 - [ ] ANALYTICS-06 Metrics dashboard: D1, D7, completion, conversion (G6)
@@ -351,7 +357,6 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [-] Online real-time co-op (only if H7 passes)
 - [-] Blockchain / on-chain collectibles (only if H8 passes + legal review)
 - [-] Regions 5–8
-- [-] Operators Farida, Sione, KAI-7
 - [-] Vehicle sections, escort and survival missions
 - [-] Seasonal pass, PvP, user-generated cosmetics
 - [-] Console ports

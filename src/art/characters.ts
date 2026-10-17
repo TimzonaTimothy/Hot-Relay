@@ -11,7 +11,16 @@ import type { WeaponId } from '../data/weapons';
 
 export const PART_RES = 6;
 
-export type RigId = 'kemi' | 'rurik' | 'meilin' | 'tari' | 'contractor';
+export type RigId =
+  | 'kemi'
+  | 'rurik'
+  | 'meilin'
+  | 'tari'
+  | 'tomas'
+  | 'farida'
+  | 'sione'
+  | 'kai7'
+  | 'contractor';
 
 export interface RigPalette {
   armour: string;
@@ -69,6 +78,54 @@ export const RIG_PALETTES: Record<RigId, RigPalette> = {
     helmet: '#24363c',
     helmetShade: '#162328',
     boot: '#101619',
+  },
+  tomas: {
+    // hi-vis engineer: yellow vest and hard hat over blue-grey coveralls
+    armour: '#d9b23a',
+    armourShade: '#9c7d1f',
+    cloth: '#4a5560',
+    clothShade: '#323a42',
+    accent: '#f2d13a',
+    skin: '#9c6b45',
+    helmet: '#e8c33a',
+    helmetShade: '#a8861f',
+    boot: '#2e2a24',
+  },
+  farida: {
+    // demolition: oxblood armour over desert fatigues
+    armour: '#8a3a30',
+    armourShade: '#5e231c',
+    cloth: '#6b5a44',
+    clothShade: '#4a3d2e',
+    accent: '#e0533d',
+    skin: '#a8714f',
+    helmet: '#5e231c',
+    helmetShade: '#3e1611',
+    boot: '#2a211c',
+  },
+  sione: {
+    // support: violet armour, navy fatigues, shield emitter on the back
+    armour: '#6a5a9a',
+    armourShade: '#463a6e',
+    cloth: '#2f3a4a',
+    clothShade: '#1f2733',
+    accent: '#b48cff',
+    skin: '#7a4a2e',
+    helmet: '#4e4378',
+    helmetShade: '#352d55',
+    boot: '#1f1d24',
+  },
+  kai7: {
+    // android: white shell, dark joints, cyan light
+    armour: '#e8eef3',
+    armourShade: '#a9b6c2',
+    cloth: '#2a3440',
+    clothShade: '#1a222b',
+    accent: '#7ff3ff',
+    skin: '#d5dde5',
+    helmet: '#e8eef3',
+    helmetShade: '#a9b6c2',
+    boot: '#3a4652',
   },
   contractor: {
     armour: '#565a63',
@@ -222,6 +279,44 @@ function torso(c: Ctx, p: RigPalette, id: RigId): void {
     c.arc(-6, -4.2, 2.1, 0, Math.PI * 2);
     inked(c, '#2b2f35', L);
   }
+  if (id === 'tomas') {
+    // folded sentry strapped to the pack: box, barrel stub, yellow-black hazard band
+    roundRect(c, -9.4, -12.2, 6.2, 5.2, 0.8);
+    inked(c, '#4a5058', L);
+    c.fillStyle = p.accent;
+    c.fillRect(-9, -8.6, 5.4, 0.9);
+    roundRect(c, -7.2, -14.4, 1.4, 2.6, 0.4);
+    inked(c, '#2d3238', L * 0.7);
+  }
+  if (id === 'sione') {
+    // shield emitter: rounded pack, glowing node, short antenna
+    roundRect(c, -9.2, -11.4, 5.6, 9.6, 2.2);
+    inked(c, p.armourShade, L);
+    c.beginPath();
+    c.arc(-6.4, -6.6, 1.5, 0, Math.PI * 2);
+    inked(c, '#e4d6ff', L * 0.6);
+    c.strokeStyle = '#20252b';
+    c.lineWidth = 0.5;
+    c.beginPath();
+    c.moveTo(-8, -11.2);
+    c.lineTo(-9, -14.6);
+    c.stroke();
+    c.fillStyle = p.accent;
+    c.fillRect(-9.4, -15.2, 1, 1);
+  }
+  if (id === 'kai7') {
+    // sleek dorsal module instead of a pack
+    poly(c, [
+      [-8.4, -11],
+      [-4, -11.6],
+      [-4, -2.4],
+      [-7.2, -3.4],
+    ]);
+    inked(c, p.armourShade, L);
+    c.fillStyle = p.accent;
+    c.fillRect(-7.4, -9, 2.6, 0.7);
+    c.fillRect(-7.2, -7.2, 2.4, 0.7);
+  }
   // undershirt / fatigues
   roundRect(c, -4.6, -11.4, 9.4, 11.4, 2.4);
   inked(c, p.cloth, L);
@@ -244,6 +339,54 @@ function torso(c: Ctx, p: RigPalette, id: RigId): void {
   inked(c, '#2a2723', L);
   c.fillStyle = '#c9b27a';
   c.fillRect(0.4, -1.6, 1.4, 1.3);
+  if (id === 'tomas') {
+    // reflective hi-vis stripes and a wrench on the belt
+    c.fillStyle = 'rgba(235,240,240,0.85)';
+    c.fillRect(-3.8, -7, 7.8, 0.6);
+    c.fillRect(-3.8, -4.4, 7.8, 0.6);
+    c.strokeStyle = '#9aa7b5';
+    c.lineWidth = 0.6;
+    c.beginPath();
+    c.moveTo(-3.6, -1);
+    c.lineTo(-3.2, 2.4);
+    c.stroke();
+  }
+  if (id === 'farida') {
+    // bandolier of grenades across the chest
+    c.strokeStyle = '#3a2a1e';
+    c.lineWidth = 1.1;
+    c.beginPath();
+    c.moveTo(-3.8, -10.4);
+    c.lineTo(3.8, -2.6);
+    c.stroke();
+    for (const [gx, gy] of [
+      [-2.2, -8.6],
+      [0, -6.4],
+      [2.2, -4.2],
+    ] as const) {
+      c.beginPath();
+      c.arc(gx, gy, 1.05, 0, Math.PI * 2);
+      inked(c, '#5d6b3c', L * 0.6);
+      c.fillStyle = p.accent;
+      c.fillRect(gx - 1, gy - 0.2, 2, 0.4);
+    }
+  }
+  if (id === 'kai7') {
+    // glowing chest core: the absorber
+    c.beginPath();
+    c.arc(0.4, -6.6, 2, 0, Math.PI * 2);
+    inked(c, '#1b5f6b', L * 0.8);
+    c.beginPath();
+    c.arc(0.4, -6.6, 1.2, 0, Math.PI * 2);
+    c.fillStyle = p.accent;
+    c.fill();
+    c.fillStyle = '#ffffff';
+    c.fillRect(0.6, -7.2, 0.5, 0.5);
+  }
+  if (id === 'sione') {
+    roundRect(c, -5.2, -12, 3.8, 3, 1.1);
+    inked(c, p.armour, L);
+  }
   // heavy gets shoulder plates
   if (id === 'rurik') {
     roundRect(c, -5.4, -12.2, 4.2, 3.2, 1.2);
@@ -255,6 +398,26 @@ function head(c: Ctx, p: RigPalette, id: RigId): void {
   // neck
   c.fillStyle = id === 'contractor' ? p.clothShade : p.skin;
   c.fillRect(-1.3, -2.4, 2.8, 2.6);
+  if (id === 'kai7') {
+    // smooth shell, no face: a single horizontal light visor
+    c.fillStyle = p.clothShade;
+    c.fillRect(-1.3, -2.4, 2.8, 2.6);
+    c.beginPath();
+    c.moveTo(-3.6, -1.4);
+    c.quadraticCurveTo(-4.8, -10.6, 0.6, -10.4);
+    c.quadraticCurveTo(5.6, -10.2, 4.8, -3.2);
+    c.quadraticCurveTo(4.2, -1, 0.6, -1);
+    c.closePath();
+    inked(c, p.helmet, L);
+    rimTop(c, -1.6, 3, -9.7, 'rgba(255,255,255,0.7)', 0.5);
+    roundRect(c, -0.2, -6.6, 5.2, 1.8, 0.8);
+    inked(c, '#0d1a20', L * 0.7);
+    c.fillStyle = p.accent;
+    c.fillRect(0.4, -6.1, 4.2, 0.8);
+    c.fillStyle = 'rgba(255,255,255,0.8)';
+    c.fillRect(3.4, -6, 0.7, 0.5);
+    return;
+  }
   if (id === 'contractor') {
     // full gas mask
     roundRect(c, -3.2, -7.6, 7.2, 6.4, 2.6);
@@ -290,6 +453,31 @@ function head(c: Ctx, p: RigPalette, id: RigId): void {
       ]);
       inked(c, '#8a5a2b', L * 0.7);
     }
+  }
+  if (id === 'farida') {
+    // no helmet: short curly hair, goggles on the forehead, a blast-resistant collar
+    c.fillStyle = '#2a1a12';
+    for (const [hx, hy, r] of [
+      [-3.4, -7.4, 1.5],
+      [-1.6, -8.8, 1.6],
+      [0.6, -9.2, 1.6],
+      [2.6, -8.6, 1.4],
+      [-3.8, -5.6, 1.3],
+      [4, -7.6, 1.1],
+    ] as const) {
+      c.beginPath();
+      c.arc(hx, hy, r, 0, Math.PI * 2);
+      c.fill();
+    }
+    roundRect(c, 0, -7.6, 4.4, 1.8, 0.8);
+    inked(c, '#20252b', L * 0.7);
+    c.fillStyle = p.accent;
+    c.fillRect(0.6, -7.1, 1.3, 0.8);
+    c.fillRect(2.4, -7.1, 1.3, 0.8);
+    roundRect(c, -3.4, -2.6, 7.6, 2.8, 1.2);
+    inked(c, p.armour, L);
+    rimTop(c, -2.6, 3.4, -2.2, 'rgba(255,255,255,0.3)', 0.4);
+    return;
   }
   if (id === 'tari') {
     // neoprene hood, dive mask pushed up, rebreather mouthpiece hose
@@ -355,6 +543,27 @@ function head(c: Ctx, p: RigPalette, id: RigId): void {
     inked(c, '#d94b3b', L * 0.6);
     roundRect(c, -4.2, -5, 1.6, 4, 0.8);
     inked(c, '#1d120c', L * 0.6);
+  }
+  if (id === 'tomas') {
+    // moustache, and a wide hard-hat brim all round
+    roundRect(c, 1, -3.9, 3, 0.9, 0.4);
+    inked(c, '#2a1a12', L * 0.5);
+    roundRect(c, -5.6, -6.2, 11.8, 1.3, 0.6);
+    inked(c, p.helmetShade, L * 0.7);
+  }
+  if (id === 'sione') {
+    // comms headset with a boom mic
+    c.beginPath();
+    c.arc(-1.2, -4.6, 1.2, 0, Math.PI * 2);
+    inked(c, '#20252b', L * 0.6);
+    c.strokeStyle = '#20252b';
+    c.lineWidth = 0.45;
+    c.beginPath();
+    c.moveTo(-0.4, -4);
+    c.quadraticCurveTo(1, -2.4, 3, -2.6);
+    c.stroke();
+    c.fillStyle = p.accent;
+    c.fillRect(2.8, -2.9, 0.7, 0.6);
   }
   if (id === 'meilin') {
     // ponytail and scope monocle
@@ -457,6 +666,77 @@ function arm(c: Ctx, p: RigPalette, weapon: WeaponId): void {
         [24, 1.1],
       ]);
       inked(c, '#c9d3dd', L * 0.6);
+      break;
+    case 'forge':
+      // engineer's carbine: plain body, curved mag, hazard tape on the stock
+      poly(c, [
+        [5.6, -1.5],
+        [15.8, -1.5],
+        [16.2, 1.3],
+        [5.6, 1.6],
+      ]);
+      inked(c, metal, L);
+      rimTop(c, 6.2, 15.4, -1, metalHi);
+      poly(c, [
+        [10, 1.2],
+        [11.8, 1.2],
+        [12.6, 4.6],
+        [11, 4.8],
+      ]);
+      inked(c, '#3a3f45', L * 0.8);
+      roundRect(c, 15.8, -0.6, 3.4, 1.1, 0.4);
+      inked(c, metal, L * 0.8);
+      c.fillStyle = p.accent;
+      c.fillRect(6, -1.1, 1.4, 2.2);
+      break;
+    case 'tremor':
+      // stubby revolver-cylinder grenade launcher with a fat barrel
+      roundRect(c, 5.8, -1.6, 6, 3.4, 1);
+      inked(c, metal, L);
+      c.beginPath();
+      c.arc(9.4, 0.4, 2.7, 0, Math.PI * 2);
+      inked(c, '#4a4f56', L);
+      for (let k = 0; k < 4; k++) {
+        c.beginPath();
+        c.arc(9.4 + Math.cos(k * 1.57) * 1.5, 0.4 + Math.sin(k * 1.57) * 1.5, 0.55, 0, Math.PI * 2);
+        c.fillStyle = '#20252b';
+        c.fill();
+      }
+      roundRect(c, 11.6, -1.8, 7.6, 3.6, 1.2);
+      inked(c, metal, L);
+      rimTop(c, 12.2, 18.6, -1.3, metalHi);
+      c.fillStyle = p.accent;
+      c.fillRect(16.6, -1.8, 0.9, 3.6);
+      break;
+    case 'tala':
+      // pump shotgun: long tube, wooden pump under the barrel
+      poly(c, [
+        [5.6, -1.4],
+        [12.6, -1.4],
+        [12.8, 1.4],
+        [5.6, 1.6],
+      ]);
+      inked(c, metal, L);
+      roundRect(c, 12.4, -1.1, 7.8, 1.4, 0.5);
+      inked(c, metal, L * 0.8);
+      rimTop(c, 6, 19.8, -0.8, metalHi);
+      roundRect(c, 13.4, 0.4, 4.4, 1.6, 0.6);
+      inked(c, '#6b4a2e', L * 0.8);
+      c.fillStyle = p.accent;
+      c.fillRect(8, -1.4, 1, 3);
+      break;
+    case 'volt':
+      // energy repeater: white shell, cyan coils and emitter
+      roundRect(c, 5.8, -1.6, 12.6, 3.2, 1.4);
+      inked(c, '#e8eef3', L);
+      rimTop(c, 6.4, 17.8, -1.1, 'rgba(255,255,255,0.7)');
+      c.fillStyle = p.accent;
+      c.fillRect(9.6, -1.6, 0.9, 3.2);
+      c.fillRect(12, -1.6, 0.9, 3.2);
+      roundRect(c, 18.2, -0.8, 1.6, 1.6, 0.8);
+      inked(c, p.accent, L * 0.6);
+      roundRect(c, 9, 1.2, 1.6, 2.6, 0.5);
+      inked(c, '#2a3440', L * 0.7);
       break;
     case 'p9':
       // compact sidearm held at full extension

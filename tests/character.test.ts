@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Arsenal, IDLE_TOPUP_MS } from '../src/systems/Arsenal';
 import { WEAPONS, shotStats } from '../src/data/weapons';
-import { OPERATORS, OPERATOR_BY_ID, resolveSquad } from '../src/data/operators';
+import { OPERATORS, OPERATOR_BY_ID, isUnlocked, resolveSquad } from '../src/data/operators';
 import { Squad } from '../src/systems/Squad';
 import {
   FLOOR_PRESS,
@@ -70,8 +70,17 @@ describe('Arsenal', () => {
 });
 
 describe('roster', () => {
-  it('has four operators with distinct roles and valid weapons', () => {
-    expect(OPERATORS.map((o) => o.role)).toEqual(['Assault', 'Heavy', 'Recon', 'Amphibious']);
+  it('has eight operators with distinct roles and valid weapons', () => {
+    expect(OPERATORS.map((o) => o.role)).toEqual([
+      'Assault',
+      'Heavy',
+      'Recon',
+      'Amphibious',
+      'Engineer',
+      'Demolition',
+      'Support',
+      'Experimental',
+    ]);
     for (const o of OPERATORS) for (const w of o.weapons) expect(WEAPONS[w]).toBeDefined();
   });
 
@@ -385,5 +394,59 @@ describe('analogue input', () => {
     const ax = im.consume().axisX;
     expect(ax).toBeGreaterThan(0);
     expect(ax).toBeLessThan(0.5);
+  });
+});
+
+describe('operators 5–8 (Tomás, Farida, Sione, KAI-7)', () => {
+  const by = (id: string) => OPERATOR_BY_ID[id as keyof typeof OPERATOR_BY_ID];
+  const sopts = { swapCooldownMs: 1000, benchArmourRegenMs: 4000 };
+
+  it('every operator has distinct colours, valid weapons and a unique entry attack', () => {
+    expect(OPERATORS).toHaveLength(8);
+    expect(new Set(OPERATORS.map((o) => o.color)).size).toBe(8);
+    expect(new Set(OPERATORS.map((o) => o.entry)).size).toBe(8);
+    for (const o of OPERATORS) for (const w of o.weapons) expect(WEAPONS[w]).toBeDefined();
+  });
+
+  it('Sione makes the bench regain armour faster, even from the bench', () => {
+    const plain = new Squad([by('kemi'), by('rurik'), by('meilin')], 'relay', sopts);
+    const support = new Squad([by('kemi'), by('rurik'), by('sione')], 'relay', sopts);
+    expect(plain.benchRegenBoost).toBe(1);
+    expect(support.benchRegenBoost).toBe(1.75);
+    for (const s of [plain, support]) {
+      s.members[1]!.armour = 0;
+      s.tick(2500);
+    }
+    expect(plain.members[1]!.armour).toBe(0); // needs 4000 ms
+    expect(support.members[1]!.armour).toBe(1); // needs ~2286 ms
+  });
+
+  it('the boost stops when Sione is down', () => {
+    const s = new Squad([by('kemi'), by('rurik'), by('sione')], 'relay', sopts);
+    s.members[2]!.down = true;
+    expect(s.benchRegenBoost).toBe(1);
+  });
+
+  it('KAI-7 loses armour while active, and keeps it on the bench', () => {
+    const s = new Squad([by('kai7'), by('kemi'), by('rurik')], 'relay', sopts);
+    expect(s.active.armour).toBe(3);
+    s.tick(6000);
+    expect(s.active.armour).toBe(2);
+    s.swap();
+    const kai = s.members[0]!;
+    s.tick(6000);
+    expect(kai.armour).toBe(3); // drain stopped, bench regen refilled it
+  });
+
+  it('KAI-7 is locked until a stage is cleared; the rest are open', () => {
+    expect(isUnlocked(by('kai7'), 0)).toBe(false);
+    expect(isUnlocked(by('kai7'), 1)).toBe(true);
+    for (const o of OPERATORS.filter((x) => x.id !== 'kai7')) expect(isUnlocked(o, 0)).toBe(true);
+  });
+
+  it('shotgun and grenade weapons are described by data', () => {
+    expect(WEAPONS.tala.pellets).toBeGreaterThan(1);
+    expect(WEAPONS.tremor.grenade?.armMs).toBeGreaterThan(0);
+    expect(WEAPONS.tremor.underwater).toBe('none');
   });
 });

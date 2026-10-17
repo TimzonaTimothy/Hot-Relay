@@ -27,6 +27,7 @@ import { Rifleman } from '../entities/Rifleman';
 import { Enemy, type EnemyContext, type EnemyVisualWorld } from '../entities/Enemy';
 import { Cache, EelDrone, Grate, Mine } from '../entities/Hazards';
 import { Bullet, BulletPool } from '../entities/BulletPool';
+import { Grenade, GrenadePool, Sentry } from '../entities/Gadgets';
 import { Rig } from '../entities/Rig';
 import { FixedStep } from '../systems/FixedStep';
 import { Squad, type SquadMode } from '../systems/Squad';
@@ -34,7 +35,8 @@ import { input, type InputFrame } from '../systems/InputManager';
 import { assistAim, type Vec } from '../systems/aim';
 import { sfx } from '../systems/Sfx';
 import { telemetry } from '../systems/Telemetry';
-import { saves } from '../systems/services';
+import { playtest, saves } from '../systems/services';
+import { dominantInput, swapsPerMinute, type InputKind, type RunOutcome } from '../systems/playtest';
 import { computeRank, isBetterRun } from '../systems/rank';
 import { FpsMeter } from '../systems/FpsMeter';
 import { FLAGS } from '../systems/flags';
@@ -98,6 +100,8 @@ export interface ResultsData {
   bestTimeMs: number;
   secrets: number;
   squad: string[];
+  /** Playtest record of this run, for the end-of-stage survey. */
+  runId: string | null;
 }
 
 const GROUND_Y = 240;
@@ -148,15 +152,27 @@ export class StageScene extends Phaser.Scene {
   private checkpoints: CheckpointRuntime[] = [];
   private arenas: ArenaRuntime[] = [];
   private firstFightLogged = false;
+  // playtest record of the current run (ANALYTICS-03)
+  private firstFightMs: number | null = null;
+  private section = 0;
+  private downsBySection: number[] = [0];
+  private inputMs: Partial<Record<InputKind, number>> = {};
+  private replay = false;
+  private runRecorded = false;
   private retryReadyAt = 0;
   private wasSubmerged = false;
   private surgeHits = new Set<Enemy>();
+  // operators 5–8
+  private sentry: Sentry | null = null;
+  private grenades!: GrenadePool;
+  /** KAI-7: armour hits absorbed towards the next counter-blast. */
+  private absorbCharge = 0;
 
   constructor() {
     super(SCENES.stage);
   }
 
-  init(data: { mode?: SquadMode; squad?: string[] }): void {
+  init(data: { mode?: SquadMode; squad?: string[]; replay?: boolean }): void {
     this.mode = data.mode ?? FLAGS.mode;
     // a restart (pause menu) keeps the squad that was picked
     this.squadIds = data.squad ?? this.squadIds;
@@ -175,6 +191,14 @@ export class StageScene extends Phaser.Scene {
     this.secrets = 0;
     this.hitStopMs = 0;
     this.firstFightLogged = false;
+    this.firstFightMs = null;
+    this.sentry = null;
+    this.absorbCharge = 0;
+    this.section = 0;
+    this.downsBySection = [0];
+    this.inputMs = {};
+    this.replay = data.replay ?? false;
+    this.runRecorded = false;
     this.wasSubmerged = false;
     this.fixed.reset();
     this.fps.reset();
@@ -238,6 +262,7 @@ export class StageScene extends Phaser.Scene {
 
     this.pBullets = new BulletPool(this, 'bullet-p', 90);
     this.eBullets = new BulletPool(this, 'bullet-e', 120);
+    this.grenades = new GrenadePool(this);
     this.telegraph = this.add.graphics().setDepth(DEPTH.fx);
     this.sparks = this.add
       .particles(0, 0, 'px', {
@@ -280,7 +305,11 @@ export class StageScene extends Phaser.Scene {
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.onHidden, this);
     this.game.events.on(HUD_EVENTS.retry, this.tryRetry, this);
     this.game.events.on(HUD_EVENTS.skip, this.trySkip, this);
+    // closing the tab mid-run still records the attempt (best effort)
+    const onPageHide = () => this.endRun('quit');
+    window.addEventListener('pagehide', onPageHide);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      window.removeEventListener('pagehide', onPageHide);
       this.game.events.off(Phaser.Core.Events.HIDDEN, this.onHidden, this);
       this.game.events.off(HUD_EVENTS.retry, this.tryRetry, this);
       this.game.events.off(HUD_EVENTS.skip, this.trySkip, this);
@@ -477,6 +506,19 @@ export class StageScene extends Phaser.Scene {
     this.physics.add.overlap(this.pBullets.group, this.enemies, (a, b) =>
       this.onBulletHitEnemy(bulletOf(a, b), enemyOf(a, b)),
     );
+    // Farida's grenades burst on walls and floors at once, on enemies only once armed
+    const grenadeOf = (a: unknown, b: unknown): Grenade => (a instanceof Grenade ? a : (b as Grenade));
+    const boom = (a: unknown, b: unknown) => this.detonate(grenadeOf(a, b));
+    this.physics.add.collider(this.grenades.group, this.solids, boom);
+    this.physics.add.collider(this.grenades.group, this.breakables, boom);
+    this.physics.add.collider(this.grenades.group, this.oneways, boom, (a, b) => {
+      const gr = grenadeOf(a, b);
+      return this.landsOnOneWay(gr.body as Phaser.Physics.Arcade.Body, otherOf(a, b, gr) as Phaser.GameObjects.Rectangle, true);
+    });
+    this.physics.add.overlap(this.grenades.group, this.enemies, (a, b) => {
+      const gr = grenadeOf(a, b);
+      if (gr.armMs <= 0) this.detonate(gr);
+    });
     this.physics.add.overlap(this.pBullets.group, this.solids, (a, b) =>
       this.killBullet(this.pBullets, bulletOf(a, b)),
     );
@@ -494,11 +536,12 @@ export class StageScene extends Phaser.Scene {
       if (!bullet.active || p.invulnMs > 0 || this.status !== 'playing') return;
       const vx = (bullet.body as Phaser.Physics.Arcade.Body).velocity.x;
       this.eBullets.kill(bullet);
-      this.hurtPlayer(1, bullet.x - Math.sign(vx || 1) * 10);
+      this.hurtPlayer(1, bullet.x - Math.sign(vx || 1) * 10, false);
     });
     this.physics.add.overlap(p, this.enemies, (a, b) => {
       const e = enemyOf(a, b);
-      if (e.contactDamage > 0) this.hurtPlayer(TUNING.contactDamage * e.contactDamage, e.x);
+      if (e.contactDamage > 0 && p.contactCooldownMs <= 0)
+        this.hurtPlayer(TUNING.contactDamage * e.contactDamage, e.x);
     });
   }
 
@@ -596,6 +639,7 @@ export class StageScene extends Phaser.Scene {
     for (const e of this.enemies) e.syncVisual(delta, visWorld);
     this.updateFallen(delta);
     this.fx.update(delta);
+    this.sentry?.render();
     this.waterView.update(delta, view, this.player.submerged);
     this.foliage.update(delta, view, this.player.x, this.player.feetY);
     this.cinematic?.render(delta, view);
@@ -672,6 +716,7 @@ export class StageScene extends Phaser.Scene {
     c?.step(dt);
 
     this.timeMs += dt;
+    this.inputMs[input.lastSource] = (this.inputMs[input.lastSource] ?? 0) + dt;
     this.squad.tick(dt);
 
     if (inp.swapPressed) this.doSwap();
@@ -684,6 +729,7 @@ export class StageScene extends Phaser.Scene {
     this.onWaterState();
     this.breathe(dt);
     this.stepEntryAttacks(dt);
+    this.stepGadgets(dt);
     if (fireHeld && p.slideMs <= 0 && !p.climbing) this.tryFire(inp);
     if (p.arsenal?.tick(dt, fireHeld)) sfx.reloadDone();
 
@@ -797,23 +843,35 @@ export class StageScene extends Phaser.Scene {
     if (!stats) return;
     const dir = this.aimDirection();
     if (dir !== p.aim.dir) p.aim = { ...p.aim, dir };
-    const spread = Phaser.Math.DegToRad((Math.random() * 2 - 1) * w.spreadDeg);
-    const angle = Math.atan2(dir.y, dir.x) + spread;
     const m = p.muzzle(dir);
-    this.pBullets.fire({
-      x: m.x,
-      y: m.y,
-      dirX: Math.cos(angle),
-      dirY: Math.sin(angle),
-      speed: stats.speed,
-      damage: stats.damage,
-      pierce: w.pierce,
-      lifeMs: TUNING.bulletLifeMs * stats.lifeScale,
-      length: w.bulletLength,
-      tint: w.tint,
-      wet: p.submerged,
-      waterproof: w.underwater === 'full',
-    });
+    const aimAngle = Math.atan2(dir.y, dir.x);
+    let angle = aimAngle;
+    if (w.grenade) {
+      this.grenades.throw(m.x, m.y, dir.x, dir.y, w);
+    } else {
+      // shotguns fan their pellets evenly across the spread, with a little jitter
+      const pellets = w.pellets ?? 1;
+      for (let k = 0; k < pellets; k++) {
+        const fan = pellets > 1 ? (k / (pellets - 1)) * 2 - 1 : Math.random() * 2 - 1;
+        const jitter = pellets > 1 ? (Math.random() - 0.5) * 0.3 : 0;
+        angle = aimAngle + Phaser.Math.DegToRad((fan + jitter) * w.spreadDeg);
+        this.pBullets.fire({
+          x: m.x,
+          y: m.y,
+          dirX: Math.cos(angle),
+          dirY: Math.sin(angle),
+          speed: stats.speed,
+          damage: stats.damage,
+          pierce: w.pierce,
+          lifeMs: (w.lifeMs ?? TUNING.bulletLifeMs) * stats.lifeScale,
+          length: w.bulletLength,
+          tint: w.tint,
+          wet: p.submerged,
+          waterproof: w.underwater === 'full',
+        });
+      }
+      angle = aimAngle;
+    }
     a.fire();
     p.recoil(w.recoil);
     this.fx.muzzle(m.x, m.y, angle, 0.7 + w.recoil * 0.25, p.submerged, w.tint ?? 0xffffff);
@@ -879,12 +937,14 @@ export class StageScene extends Phaser.Scene {
   }
 
   /** Blast (mines): hurts the player and other enemies in range. */
+  /** `friendly` blasts (Farida's) hurt enemies only, for their full damage. */
   private explode(
     x: number,
     y: number,
     radius: number,
     damage: number,
     source: Enemy | null,
+    friendly = false,
   ): void {
     const wet = pointInWater(x, y, this.def.water);
     this.debris.explode(18, x, y);
@@ -898,13 +958,15 @@ export class StageScene extends Phaser.Scene {
     this.shake(TUNING.shakePound);
     if (this.settings.flashing) this.cameras.main.flash(70, 255, 200, 150);
     const p = this.player;
-    if (Math.hypot(p.x - x, p.y - y) < radius + 6) {
+    if (!friendly && Math.hypot(p.x - x, p.y - y) < radius + 6) {
       p.invulnMs = 0; // a blast always lands
       this.hurtPlayer(damage, x);
     }
     for (const e of this.enemies) {
       if (e === source || e.dead) continue;
-      if (Math.hypot(e.x - x, e.y - y) < radius) e.hit(3);
+      if (Math.hypot(e.x - x, e.y - y) < radius) {
+        if (!e.hit(friendly ? damage : 3) && friendly) e.stun(500);
+      }
     }
   }
 
@@ -924,17 +986,26 @@ export class StageScene extends Phaser.Scene {
       onEngage: () => {
         if (this.firstFightLogged) return;
         this.firstFightLogged = true;
+        this.firstFightMs = Math.round(this.timeMs);
         telemetry.log('first_fight', { msSinceStart: Math.round(this.timeMs) });
       },
     };
   }
 
-  private hurtPlayer(amount: number, fromX?: number): void {
+  private hurtPlayer(amount: number, fromX?: number, hop = true): void {
     const p = this.player;
     if (this.status !== 'playing' || p.invulnMs > 0 || p.climbing) return;
     if (this.cinematic && !this.cinematic.controlReturned) return;
+    const absorbing = this.squad.active.def.absorbCharge;
     const r = this.squad.damage(amount);
     sfx.hurt();
+    if (absorbing && r.armourLost > 0 && !r.downed) {
+      this.absorbCharge += r.armourLost;
+      if (this.absorbCharge >= absorbing) {
+        this.absorbCharge = 0;
+        this.counterBlast();
+      }
+    }
     this.hitStop(TUNING.hitStopHurtMs);
     this.shake(TUNING.shakeHurt);
     if (this.settings.flashing) this.cameras.main.flash(90, 255, 70, 50);
@@ -942,8 +1013,11 @@ export class StageScene extends Phaser.Scene {
       this.operatorDown('hp');
       return;
     }
-    p.knockback(fromX ?? p.x - p.facing);
-    p.invulnMs = TUNING.hurtInvulnMs;
+    p.knockback(fromX ?? p.x - p.facing, hop);
+    // No invulnerability after a hit: every bullet in a burst lands. Only contact damage
+    // waits; invulnerability is kept for tag-ins and respawns.
+    p.contactCooldownMs = TUNING.contactCooldownMs;
+    p.rig.flash(80);
   }
 
   // ---------------------------------------------------------------- relay swap
@@ -1015,7 +1089,105 @@ export class StageScene extends Phaser.Scene {
         p.surgeMs = 240;
         this.surgeHits.clear();
         break;
+      case 'sentry': {
+        // Tomás: a turret lands where he arrives (one at a time); not underwater
+        if (p.submerged) break;
+        this.sentry?.destroy();
+        const feetY = groundBelow(this.def.platforms, p.x + p.facing * 10, p.feetY - 4, 60) ?? p.feetY;
+        this.sentry = new Sentry(this, p.x + p.facing * 10, feetY, p.facing);
+        this.fx.dust(p.x + p.facing * 10, feetY, 6);
+        sfx.weaponSwitch();
+        break;
+      }
+      case 'blast': {
+        // Farida: blast at her feet (enemies only) that launches her upward
+        if (p.inWater) break;
+        const t = TUNING.blast;
+        this.explode(p.x, p.feetY - 4, t.radius, t.damage, null, true);
+        p.arcadeBody.setVelocityY(-p.def.jumpVelocity * t.launch);
+        break;
+      }
+      case 'pulse':
+        this.shieldPulse();
+        break;
+      case 'phase':
+        // KAI-7: an intangible dash through enemies
+        p.surgeMs = TUNING.phase.ms;
+        p.invulnMs = Math.max(p.invulnMs, TUNING.phase.invulnMs);
+        this.surgeHits.clear();
+        this.fx.dust(p.x, p.feetY, 5, 0x7ff3ff);
+        break;
     }
+  }
+
+  /** Sione: wipe nearby enemy fire, stun nearby enemies, +1 armour to every standing member. */
+  private shieldPulse(): void {
+    const p = this.player;
+    const t = TUNING.pulse;
+    for (const b of this.eBullets.group.getChildren() as Bullet[]) {
+      if (b.active && Math.hypot(b.x - p.x, b.y - p.y) < t.radius) this.eBullets.kill(b);
+    }
+    for (const e of this.enemies) {
+      if (e.dead || Math.hypot(e.x - p.x, e.y - p.y) > t.radius) continue;
+      e.stun(t.stunMs);
+      e.arcadeBody.setVelocityX(Math.sign(e.x - p.x || 1) * t.knock);
+    }
+    for (const m of this.squad.members) if (!m.down) m.armour = Math.min(m.def.maxArmour, m.armour + 1);
+    const ring = this.add
+      .ellipse(p.x, p.y - 6, 12, 12)
+      .setStrokeStyle(2.5, 0xb48cff)
+      .setDepth(DEPTH.fx);
+    this.tweens.add({
+      targets: ring,
+      scale: (t.radius * 2) / 12,
+      alpha: 0,
+      duration: 360,
+      ease: 'Cubic.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+    sfx.swap();
+  }
+
+  /** Sentry fire and grenade fuses, at the fixed rate. */
+  private stepGadgets(dt: number): void {
+    const s = this.sentry;
+    if (s) {
+      const dir = s.step(dt, this.enemies, this.cameras.main.worldView);
+      if (dir) {
+        const m = s.muzzle;
+        const t = TUNING.sentry;
+        this.pBullets.fire({ x: m.x, y: m.y, dirX: dir.x, dirY: dir.y, speed: t.bulletSpeed, damage: t.damage, pierce: 1, lifeMs: TUNING.bulletLifeMs, length: 4, tint: 0xfff0a0 });
+        this.fx.muzzle(m.x, m.y, Math.atan2(dir.y, dir.x), 0.6, false, 0xfff0a0);
+        sfx.shoot(980);
+      }
+      if (s.done) {
+        this.fx.dust(s.x, s.feetY, 6);
+        s.destroy();
+        this.sentry = null;
+      }
+    }
+    for (const g of this.grenades.step(dt)) this.detonate(g);
+  }
+
+  private detonate(g: Grenade): void {
+    if (!g.active) return;
+    const { x, y, radius, damage } = g;
+    this.grenades.kill(g);
+    this.explode(x, y, radius, damage, null, true);
+  }
+
+  /** KAI-7 turns absorbed armour hits into a ring of bolts. */
+  private counterBlast(): void {
+    const p = this.player;
+    const t = TUNING.counter;
+    for (let k = 0; k < t.bolts; k++) {
+      const a = (k / t.bolts) * Math.PI * 2;
+      this.pBullets.fire({ x: p.x, y: p.y - 4, dirX: Math.cos(a), dirY: Math.sin(a), speed: t.speed, damage: t.damage, pierce: t.pierce, lifeMs: TUNING.bulletLifeMs, length: 7, tint: 0x7ff3ff });
+    }
+    this.fx.dust(p.x, p.y, 8, 0x7ff3ff);
+    this.shake(TUNING.shakePound);
+    sfx.pound();
+    this.game.events.emit(HUD_EVENTS.callout, 'Counter-blast', 0x7ff3ff);
   }
 
   private stepEntryAttacks(dt: number): void {
@@ -1158,6 +1330,7 @@ export class StageScene extends Phaser.Scene {
     const p = this.player;
     const from = this.squad.active.def;
     const outcome = this.squad.activeDown();
+    this.downsBySection[this.section] = (this.downsBySection[this.section] ?? 0) + 1;
     sfx.down();
     this.debris.explode(10, p.x, p.y);
     telemetry.log('operator_down', {
@@ -1237,7 +1410,7 @@ export class StageScene extends Phaser.Scene {
     if (r.downed) this.operatorDown('pit');
     else {
       this.respawnAtSafeSpot();
-      p.invulnMs = TUNING.hurtInvulnMs;
+      p.invulnMs = TUNING.pitRespawnInvulnMs;
     }
   }
 
@@ -1295,6 +1468,8 @@ export class StageScene extends Phaser.Scene {
         ease: 'Back.easeOut',
       });
       this.checkpoint = { x: cp.x, y: cp.y };
+      this.section++;
+      this.downsBySection[this.section] ??= 0;
       sfx.checkpoint();
       this.game.events.emit(HUD_EVENTS.callout, 'Checkpoint', COLORS.checkpointOn);
       telemetry.log('checkpoint', { x: cp.x, t: Math.round(this.timeMs) });
@@ -1382,11 +1557,59 @@ export class StageScene extends Phaser.Scene {
       bestTimeMs: (newBest ? run : prev)?.timeMs ?? run.timeMs,
       secrets: this.secrets,
       squad: this.squad.members.map((m) => m.def.id),
+      runId: this.recordRun('clear'),
     };
     this.time.delayedCall(1800, () => {
       this.scene.stop(SCENES.hud);
       this.scene.start(SCENES.results, data);
     });
+  }
+
+  // ---------------------------------------------------------------- playtest record (ANALYTICS-03)
+
+  /** The run ended without a clear (pause → restart / menu, or the tab closed). */
+  endRun(outcome: Exclude<RunOutcome, 'clear'>): void {
+    if (this.status !== 'clear') this.recordRun(outcome);
+  }
+
+  /** Store one record per attempt; nothing if the stage was never actually played. */
+  private recordRun(outcome: RunOutcome): string | null {
+    if (this.runRecorded || this.timeMs <= 0) return null;
+    this.runRecorded = true;
+    const id = `${telemetry.sessionId}-${Date.now().toString(36)}`;
+    const fps = this.fps.summary();
+    const ctx = telemetry.context();
+    void playtest.add({
+      id,
+      at: new Date().toISOString(),
+      sessionId: telemetry.sessionId,
+      build: __BUILD__,
+      stage: this.def.id,
+      mode: this.mode,
+      squad: this.squad.members.map((m) => m.def.id),
+      outcome,
+      timeMs: Math.round(this.timeMs),
+      firstFightMs: this.firstFightMs,
+      downs: this.squad.downs,
+      downsBySection: [...this.downsBySection].map((n) => n ?? 0),
+      swaps: this.squad.swaps,
+      swapsPerMin: swapsPerMinute(this.squad.swaps, this.timeMs),
+      continues: this.continues,
+      input: dominantInput(this.inputMs),
+      fpsP50: fps.p50,
+      fpsP10: fps.p10,
+      detail: this.detail ?? 'high',
+      replay: this.replay,
+      device: {
+        touch: navigator.maxTouchPoints > 0,
+        screen: `${screen.width}x${screen.height}`,
+        dpr: window.devicePixelRatio || 1,
+        standalone: ctx.standalone === true,
+        ua: navigator.userAgent,
+      },
+      survey: null,
+    });
+    return id;
   }
 
   // ---------------------------------------------------------------- feedback, pause, HUD
@@ -1534,6 +1757,10 @@ export class StageScene extends Phaser.Scene {
       },
       setInvulnerable: (ms: number) => {
         this.player.invulnMs = ms;
+      },
+      /** Fire an enemy bullet from (x, y) along (dirX, dirY), as a rifleman would. */
+      enemyShot: (x: number, y: number, dirX: number, dirY: number) => {
+        this.eBullets.fire({ x, y, dirX, dirY, speed: 220, damage: 1, pierce: 1, lifeMs: 2400 });
       },
       clearEnemies: () => this.enemies.forEach((e) => e.despawn()),
       scene: this,

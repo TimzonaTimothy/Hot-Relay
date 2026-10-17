@@ -1,3 +1,5 @@
+import type { PlaytestLog } from './playtest';
+
 /**
  * Event log for playtests. In Gate 3 events stay in memory (and the debug console);
  * Gate 4 adds the upload endpoint (ANALYTICS-01) using these same event names.
@@ -59,11 +61,14 @@ declare global {
   interface Window {
     __hotRelay?: {
       telemetry: Telemetry;
+      /** Offline playtest runs and survey answers (ANALYTICS-03). */
+      playtest?: PlaytestLog;
       stress?: { p50: number; p10: number; frames: number; detail?: 'high' | 'low' };
       /** Debug hooks (?debug=1) used by the smoke test. */
       debug?: {
         teleport(x: number, feetY: number): void;
         setInvulnerable(ms: number): void;
+        enemyShot(x: number, y: number, dirX: number, dirY: number): void;
         clearEnemies(): void;
         /** Visible objects per texture key (PERF-01 checks). */
         visibleByTexture(keys: string[]): Record<string, number>;
