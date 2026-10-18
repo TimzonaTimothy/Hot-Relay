@@ -5,6 +5,7 @@
  */
 import Phaser from 'phaser';
 import { OPERATORS, type OperatorDef } from '../data/operators';
+import { LOOKS } from '../art/characters';
 import { PALETTE, seeded } from './theme';
 
 type G = Phaser.GameObjects.Graphics;
@@ -37,26 +38,6 @@ function withCanvas(
   tex.refresh();
 }
 
-const SKIN: Record<OperatorDef['id'], number> = {
-  kemi: 0x6b3e26,
-  rurik: 0xe0b49a,
-  meilin: 0xd9a77f,
-  tari: 0x4a2c1d,
-  tomas: 0x9c6b45,
-  farida: 0xa8714f,
-  sione: 0x7a4a2e,
-  kai7: 0xd5dde5,
-};
-const HAIR: Record<OperatorDef['id'], number> = {
-  kemi: 0x1d120c,
-  rurik: 0x8a5a2b,
-  meilin: 0x15110f,
-  tari: 0x0b0806,
-  tomas: 0x2a1a12,
-  farida: 0x2a1a12,
-  sione: 0x15100c,
-  kai7: 0x1b5f6b,
-};
 
 export function generateArt(scene: Phaser.Scene): void {
   OPERATORS.forEach((op) => {
@@ -80,58 +61,68 @@ export function generateArt(scene: Phaser.Scene): void {
 
 /** 16×16 head-and-shoulders portrait used by the HUD and squad screens. */
 function portrait(scene: Phaser.Scene, op: OperatorDef): void {
+  // colours come from the rig look so the HUD face matches the character on screen
+  const k = LOOKS[op.rig];
+  const hex = (c: string) => parseInt(c.slice(1), 16);
   withGfx(scene, `portrait-${op.id}`, 16, 16, (g) => {
-    const skin = SKIN[op.id];
-    // shoulders / collar
-    g.fillStyle(op.accent, 1).fillRect(1, 13, 14, 3);
-    g.fillStyle(op.color, 1).fillRect(3, 13, 10, 2);
-    // neck and face
-    g.fillStyle(skin, 1).fillRect(6, 11, 4, 2).fillRect(4, 5, 8, 7);
-    // jaw shading
-    g.fillStyle(0x000000, 0.2).fillRect(4, 10, 8, 1);
-    // helmet
-    g.fillStyle(op.accent, 1).fillRect(3, 1, 10, 4).fillRect(2, 3, 12, 2);
-    g.fillStyle(op.color, 1).fillRect(4, 1, 8, 2);
-    // visor band and glint
-    g.fillStyle(0x0b0f14, 1).fillRect(4, 6, 8, 2);
-    g.fillStyle(op.color, 1).fillRect(5, 6, 6, 1);
-    g.fillStyle(0xffffff, 1).fillRect(10, 6, 1, 1);
-    // mouth
-    g.fillStyle(0x000000, 0.35).fillRect(7, 10, 3, 1);
-    if (op.id === 'kemi') {
-      g.fillStyle(0xd94b3b, 1).fillRect(3, 5, 10, 1); // red headband
-      g.fillStyle(HAIR.kemi, 1).fillRect(2, 6, 2, 5).fillRect(12, 6, 2, 4); // braids
-    }
-    if (op.id === 'rurik') {
-      g.fillStyle(HAIR.rurik, 1).fillRect(4, 9, 8, 3); // beard
-      g.fillStyle(skin, 1).fillRect(6, 9, 4, 1);
-      g.fillStyle(op.accent, 1).fillRect(0, 12, 4, 4).fillRect(12, 12, 4, 4); // shoulder plates
-    }
-    if (op.id === 'meilin') {
-      g.fillStyle(HAIR.meilin, 1).fillRect(12, 4, 2, 8).fillRect(3, 5, 1, 3); // ponytail
-      g.fillStyle(0xd9ffd0, 1).fillRect(11, 7, 2, 1); // scope monocle glow
-    }
-    if (op.id === 'tomas') {
-      g.fillStyle(op.color, 1).fillRect(1, 4, 14, 1); // hard-hat brim
-      g.fillStyle(HAIR.tomas, 1).fillRect(6, 9, 5, 1); // moustache
-      g.fillStyle(0xe8eef0, 1).fillRect(3, 14, 10, 1); // hi-vis stripe
-    }
-    if (op.id === 'farida') {
-      g.fillStyle(HAIR.farida, 1).fillRect(3, 1, 10, 4).fillRect(2, 3, 2, 4).fillRect(12, 3, 2, 3); // curls
-      g.fillStyle(0x0b0f14, 1).fillRect(4, 4, 8, 2); // goggles up
-      g.fillStyle(op.color, 1).fillRect(5, 4, 2, 1).fillRect(9, 4, 2, 1);
-      g.fillStyle(0x8a3a30, 1).fillRect(4, 12, 8, 2); // blast collar
-    }
-    if (op.id === 'sione') {
-      g.fillStyle(0x20252b, 1).fillRect(3, 7, 2, 2); // headset
-      g.fillStyle(op.color, 1).fillRect(5, 10, 3, 1); // boom mic
-    }
+    const skin = hex(k.skin);
+    const hair = hex(k.hair);
+    // shoulders in the operator's outfit
+    g.fillStyle(hex(k.sleeve === 'skin' ? k.skin : k.top), 1).fillRect(0, 13, 16, 3);
+    g.fillStyle(hex(k.top), 1).fillRect(3, 13, 10, 3);
+    g.fillStyle(op.color, 1).fillRect(3, 13, 10, 1);
     if (op.id === 'kai7') {
-      // faceless shell with a light visor
-      g.fillStyle(0xe8eef3, 1).fillRect(3, 1, 10, 11);
+      // faceless shell with a light visor and the chest core
+      g.fillStyle(hex(k.top), 1).fillRect(3, 2, 10, 10).fillRect(4, 1, 8, 1);
+      g.fillStyle(hex(k.topShade), 1).fillRect(3, 10, 10, 2);
       g.fillStyle(0x0d1a20, 1).fillRect(4, 6, 9, 2);
-      g.fillStyle(op.color, 1).fillRect(5, 6, 7, 1);
-      g.fillStyle(op.color, 1).fillRect(7, 14, 2, 2); // chest core
+      g.fillStyle(op.color, 1).fillRect(5, 6, 7, 1).fillRect(7, 14, 2, 2);
+      return;
+    }
+    // neck, face, jaw shading, eyes, mouth
+    g.fillStyle(skin, 1).fillRect(6, 11, 4, 2).fillRect(4, 4, 8, 8);
+    g.fillStyle(0x000000, 0.2).fillRect(4, 10, 8, 2);
+    g.fillStyle(0x14181d, 1).fillRect(6, 7, 1, 1).fillRect(9, 7, 1, 1);
+    g.fillStyle(0x14181d, 1).fillRect(5, 6, 2, 1).fillRect(9, 6, 2, 1); // brows
+    g.fillStyle(0x000000, 0.4).fillRect(7, 10, 2, 1);
+    switch (op.id) {
+      case 'kemi':
+        g.fillStyle(hair, 1).fillRect(3, 2, 10, 3).fillRect(1, 0, 5, 4).fillRect(10, 0, 5, 4); // puffs
+        g.fillStyle(op.color, 1).fillRect(3, 4, 10, 1); // bandana
+        g.fillStyle(0xf2c14e, 1).fillRect(3, 9, 1, 1); // earring
+        break;
+      case 'rurik':
+        g.fillStyle(0xffffff, 0.25).fillRect(5, 3, 6, 1); // bald shine
+        g.fillStyle(hair, 1).fillRect(4, 9, 8, 4); // beard
+        g.fillStyle(skin, 1).fillRect(7, 10, 2, 1);
+        g.fillStyle(hex(k.top), 1).fillRect(0, 11, 4, 5); // pauldron
+        break;
+      case 'meilin':
+        g.fillStyle(hair, 1).fillRect(4, 2, 8, 3).fillRect(3, 3, 1, 4).fillRect(12, 2, 3, 2).fillRect(14, 3, 2, 8);
+        g.fillStyle(0xd9ffd0, 1).fillRect(9, 7, 2, 1); // monocle
+        g.fillStyle(0x3f8a5a, 1).fillRect(4, 12, 8, 1); // scarf
+        break;
+      case 'tari':
+        g.fillStyle(hair, 1).fillRect(3, 1, 10, 4).fillRect(1, 3, 3, 8);
+        g.fillStyle(op.color, 1).fillRect(5, 3, 7, 2); // goggles up
+        break;
+      case 'tomas':
+        g.fillStyle(op.color, 1).fillRect(3, 1, 10, 4).fillRect(1, 4, 3, 1); // backwards cap
+        g.fillStyle(0x2a2f36, 1).fillRect(5, 3, 6, 2);
+        g.fillStyle(0x5fe0c0, 1).fillRect(6, 3, 1, 1).fillRect(9, 3, 1, 1);
+        g.fillStyle(hair, 1).fillRect(5, 9, 6, 1); // moustache
+        break;
+      case 'farida':
+        g.fillStyle(hex(k.top), 1).fillRect(3, 1, 10, 4).fillRect(1, 2, 3, 2); // headwrap
+        g.fillStyle(hair, 1).fillRect(2, 4, 2, 6); // curls out the back
+        g.fillStyle(0x0b0f14, 1).fillRect(5, 4, 6, 1);
+        g.fillStyle(0xffb36b, 1).fillRect(5, 4, 2, 1).fillRect(9, 4, 2, 1);
+        break;
+      case 'sione':
+        g.fillStyle(hair, 1).fillRect(4, 2, 8, 3).fillRect(3, 3, 1, 3).fillRect(4, 9, 8, 3); // curls, beard
+        g.fillStyle(skin, 1).fillRect(7, 10, 2, 1);
+        g.fillStyle(op.color, 1).fillRect(3, 7, 1, 1); // earpiece
+        break;
     }
   });
 }

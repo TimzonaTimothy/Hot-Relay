@@ -10,11 +10,17 @@ Status key: **P** = placeholder in the build · **F** = final (none yet).
 
 ## Characters (src/art/characters.ts)
 
-Cut-out rig parts, drawn at 6 px per world px. Pivots are listed in `PARTS`.
+Cut-out rig parts, drawn at 6 px per world px. Pivots are listed in `PARTS`; colours and builds in `LOOKS`.
+
+Art direction for the final cast: heroic action-game look — broad V-shaped torsos, big hair,
+chunky guns, one strong personal silhouette each (Kemi's afro puffs and bomber, Rurik's beard and
+bare arms, Mei-Lin's ponytail and scarf, Tari's locs and wetsuit, Tomás's backwards cap and
+goggles, Farida's headwrap and grenade straps, Sione's size and shield pack, KAI-7's plated
+shell). Keep every design original; do not trace or copy existing franchise characters.
 
 | Key pattern                                            | Contents                                                                             | Final asset needed                                                                          | Status |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ------ |
-| `<rig>-head`, `<rig>-torso`, `<rig>-leg`, `<rig>-legB` | Kemi, Rurik, Mei-Lin, Tari, contractor                                               | Painted parts per character, same pivots (hip at leg top, neck at head base)                | P      |
+| `<rig>-head`, `<rig>-torso`, `<rig>-leg`, `<rig>-legB` | All 8 operators and the contractor                                                   | Painted parts per character, same pivots (hip at leg top, neck at head base)                | P      |
 | `<rig>-arm-<weapon>`                                   | Gun arm per operator weapon (kestrel, bulwark, needle, riptide, p9, contractorRifle) | Painted arm + weapon per weapon; barrel tip at `WEAPONS[id].muzzle` units from the shoulder | P      |
 | `portrait-<id>` (src/ui/artGen.ts)                     | 16×16 HUD portraits                                                                  | Painted portraits, 64×64 or larger                                                          | P      |
 
