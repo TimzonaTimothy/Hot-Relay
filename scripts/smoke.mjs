@@ -504,7 +504,8 @@ try {
     await page.keyboard.down('ArrowRight');
     await waitState(page, (x) => x.status === 'clear', 8000);
     await page.keyboard.up('ArrowRight');
-    await sleep(2600); // results screen after the clear pose
+    await waitState(page, (x) => x.scene === 'results', 8000);
+    await sleep(300);
     const keys = ['ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowDown', 'ArrowRight', 'ArrowRight', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'Enter'];
     for (const k of keys) {
       await page.keyboard.press(k);

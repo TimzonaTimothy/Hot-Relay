@@ -39,6 +39,12 @@ npm run build && npm run preview   # production build with offline support, http
 Touch options in Settings: aim-assist (on by default), auto-fire, controls Auto/On/Off.
 Swimming into a quay wall at the surface climbs out automatically.
 
+**Jumping.** A running jump tucks into a somersault: a fixed, slightly higher arc you can still
+steer, with a small hitbox for slipping between shots. Firing mid-somersault opens up into the
+aim pose for the rest of the jump. A standing jump stays upright, and releasing jump early makes
+it lower. Press jump again in mid-air for a double jump (always a quick flip).
+View zoom (normal / wide / close): O key, gamepad Back, or the zoom button on touch.
+
 ## The squad (placeholder numbers)
 
 | Operator | Role       | Health / armour | Weapons (primary + P9 sidearm)           | In water                                | Entry attack on tag-in    |

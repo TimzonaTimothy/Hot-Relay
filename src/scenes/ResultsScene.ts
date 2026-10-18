@@ -81,8 +81,11 @@ export class ResultsScene extends Phaser.Scene {
     input.flush();
     this.menuY = 250 + rows.length * 28 + 6;
     this.survey = { fun: null, controls: null, again: null };
-    if (playtest.enabled && d.runId) this.showSurvey(d.runId);
+    const survey = playtest.enabled && !!d.runId;
+    if (survey) this.showSurvey(d.runId!);
     else this.showMenu();
+    // lets the smoke test wait for this screen instead of guessing a delay
+    if (window.__hotRelay) window.__hotRelay.state = { scene: 'results', survey };
   }
 
   private showMenu(): void {

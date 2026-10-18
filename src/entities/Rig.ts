@@ -42,6 +42,8 @@ export interface RigParams {
   reload: number | null;
   /** Swim heading for underwater orientation (world space). */
   swimDir: Vec;
+  /** Somersault speed in turns per second while in the spin state. */
+  spinRate?: number;
 }
 
 interface Pose {
@@ -193,6 +195,15 @@ export class Rig {
         pose.torso = run ? 0.08 : 0.03;
         break;
       }
+      case 'spin':
+        // tucked into a ball: knees to the chest, gun held in close; the body spins (update)
+        pose.legF = -1.75;
+        pose.legB = -1.35;
+        pose.torso = 0.42;
+        pose.head = 0.3;
+        pose.arm = 1.25;
+        pose.drop = 2.5;
+        break;
       case 'jump':
         pose.legF = -0.7;
         pose.legB = 0.5;
@@ -294,7 +305,14 @@ export class Rig {
     c.drop = ease(c.drop, tg.drop, 18, dt);
     c.bob = ease(c.bob, tg.bob, 30, dt);
     c.sink = ease(c.sink, tg.sink, 8, dt);
-    this.bodyRot = ease(this.bodyRot, tg.body, p.state === 'dead' ? 6 : 10, dt);
+    if (p.state === 'spin') {
+      // a continuous forward roll, not eased; root.rotation × facing keeps it a front flip
+      this.bodyRot += dt * (p.spinRate ?? 2.4) * Math.PI * 2;
+    } else {
+      // after a spin, come upright the short way round
+      this.bodyRot = Phaser.Math.Angle.Wrap(this.bodyRot);
+      this.bodyRot = ease(this.bodyRot, tg.body, p.state === 'dead' ? 6 : 10, dt);
+    }
     this.squash = ease(this.squash, 1, 12, dt);
     this.layout();
 
@@ -330,6 +348,12 @@ export class Rig {
       if (this.flashMs <= 0)
         for (const part of this.parts()) part.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
     }
+  }
+
+  /** Snap out of a somersault at once (firing mid-spin unfurls into the aim pose). */
+  cancelSpin(): void {
+    this.bodyRot = 0;
+    this.root.rotation = 0;
   }
 
   /** Shoulder in world space (follows body rotation, crouch and bob). */

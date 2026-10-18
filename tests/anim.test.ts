@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { AnimStateMachine, TRANSITIONS, type AnimInput, type AnimState } from '../src/systems/anim';
+import {
+  AnimStateMachine,
+  TRANSITIONS,
+  desiredState,
+  type AnimInput,
+  type AnimState,
+} from '../src/systems/anim';
 
 const base: AnimInput = {
   grounded: true,
@@ -8,6 +14,7 @@ const base: AnimInput = {
   runSpeed: 120,
   crouch: false,
   sliding: false,
+  spinning: false,
   inWater: false,
   submerged: false,
   climbing: false,
@@ -75,5 +82,30 @@ describe('AnimStateMachine', () => {
     const states = Object.keys(TRANSITIONS) as AnimState[];
     for (const s of states) for (const t of TRANSITIONS[s]) expect(states).toContain(t);
     expect(TRANSITIONS.dead).not.toContain('run');
+  });
+});
+
+describe('somersault (MOVE-08)', () => {
+  it('an airborne spinning operator is in the spin state, rising or falling', () => {
+    expect(desiredState({ ...base, grounded: false, vy: -200, spinning: true }, 'run')).toBe('spin');
+    expect(desiredState({ ...base, grounded: false, vy: 150, spinning: true }, 'spin')).toBe('spin');
+  });
+  it('unfurling (firing) drops back to the normal jump and fall poses', () => {
+    expect(desiredState({ ...base, grounded: false, vy: -100 }, 'spin')).toBe('jump');
+    expect(desiredState({ ...base, grounded: false, vy: 100 }, 'spin')).toBe('fall');
+  });
+  it('touching down from a spin plays the landing beat', () => {
+    expect(desiredState({ ...base }, 'spin')).toBe('land');
+  });
+  it('the machine can enter and leave spin', () => {
+    const m = new AnimStateMachine();
+    m.step(16, { ...base, vx: 120 });
+    m.step(16, { ...base, grounded: false, vx: 120, vy: -300, spinning: true });
+    expect(m.state).toBe('spin');
+    m.step(16, { ...base, grounded: true });
+    expect(m.state).toBe('land');
+  });
+  it('swimming wins over spinning', () => {
+    expect(desiredState({ ...base, grounded: false, inWater: true, spinning: true }, 'spin')).toBe('swimSurface');
   });
 });

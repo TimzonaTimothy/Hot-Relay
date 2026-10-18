@@ -843,6 +843,7 @@ export class StageScene extends Phaser.Scene {
     if (!stats) return;
     const dir = this.aimDirection();
     if (dir !== p.aim.dir) p.aim = { ...p.aim, dir };
+    p.unfurl(); // firing mid-somersault opens up into the aim pose
     const m = p.muzzle(dir);
     const aimAngle = Math.atan2(dir.y, dir.x);
     let angle = aimAngle;

@@ -120,6 +120,7 @@ export class Rifleman extends Enemy {
       runSpeed: 100,
       crouch: false,
       sliding: false,
+      spinning: false,
       inWater: false,
       submerged: false,
       climbing: false,

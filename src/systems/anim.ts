@@ -10,6 +10,8 @@ export type AnimState =
   | 'walk'
   | 'run'
   | 'jump'
+  /** Somersault: a running jump tucks into a spin (MOVE-08). */
+  | 'spin'
   | 'fall'
   | 'land'
   | 'crouch'
@@ -29,6 +31,8 @@ export interface AnimInput {
   runSpeed: number;
   crouch: boolean;
   sliding: boolean;
+  /** Airborne in a somersault (running jump or double jump), not yet unfurled. */
+  spinning: boolean;
   inWater: boolean;
   submerged: boolean;
   climbing: boolean;
@@ -54,6 +58,7 @@ const LAND_STATES: AnimState[] = [
   'walk',
   'run',
   'jump',
+  'spin',
   'fall',
   'land',
   'crouch',
@@ -77,6 +82,7 @@ export const TRANSITIONS: Record<AnimState, readonly AnimState[]> = {
   walk: [...LAND_STATES, 'swimSurface', 'swimUnder', 'dead', 'victory'],
   run: [...LAND_STATES, 'swimSurface', 'swimUnder', 'dead', 'victory'],
   jump: [...LAND_STATES, 'swimSurface', 'swimUnder', 'dead', 'victory'],
+  spin: [...LAND_STATES, 'swimSurface', 'swimUnder', 'dead', 'victory'],
   fall: [...LAND_STATES, 'swimSurface', 'swimUnder', 'dead', 'victory'],
   land: [...LAND_STATES, 'dead', 'victory'],
   crouch: [...LAND_STATES, 'dead', 'victory'],
@@ -99,9 +105,9 @@ export function desiredState(i: AnimInput, current: AnimState): AnimState {
   if (i.climbing) return 'climb';
   if (i.sliding) return 'slide';
   if (i.inWater && !i.grounded) return i.submerged ? 'swimUnder' : 'swimSurface';
-  if (!i.grounded) return i.vy < 0 ? 'jump' : 'fall';
-  // just touched down after falling: a short landing beat
-  if (current === 'fall' || current === 'rope') return 'land';
+  if (!i.grounded) return i.spinning ? 'spin' : i.vy < 0 ? 'jump' : 'fall';
+  // just touched down after falling or a somersault: a short landing beat
+  if (current === 'fall' || current === 'rope' || current === 'spin') return 'land';
   if (i.crouch) return 'crouch';
   const speed = Math.abs(i.vx);
   if (speed > i.runSpeed * 0.6) return 'run';

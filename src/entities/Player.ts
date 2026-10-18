@@ -89,6 +89,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   private jumpCtl = new JumpController(TUNING.coyoteMs, TUNING.jumpBufferMs, TUNING.airJumps);
   private jumpCutDone = true;
+  /** In a somersault (MOVE-08): tucked hitbox, fixed arc, until landing or firing. */
+  spinning = false;
+  private spinFast = false;
   private wasGrounded = true;
   private fallSpeed = 0;
   private swimDir: Vec = { x: 1, y: 0 };
@@ -148,6 +151,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.rig.setId(def.rig, arsenal.current.id);
     this.crouching = false;
     this.surgeMs = 0;
+    // a tag-in mid-somersault arrives upright
+    this.spinning = false;
+    this.spinFast = false;
+    this.rig.cancelSpin();
     this.setStanding();
   }
 
@@ -162,6 +169,26 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   private setCrouched(): void {
     this.arcadeBody.setSize(10, 11).setOffset(1, 9);
+  }
+
+  private startSpin(fast: boolean): void {
+    this.spinning = true;
+    this.spinFast = fast;
+    this.setCrouched(); // tucked: the small hitbox slips between shots
+  }
+
+  private endSpin(): void {
+    if (!this.spinning) return;
+    this.spinning = false;
+    this.spinFast = false;
+    if (!this.crouching) this.setStanding();
+  }
+
+  /** Firing mid-somersault unfurls into the upright aim pose for the rest of the jump. */
+  unfurl(): void {
+    if (!this.spinning) return;
+    this.endSpin();
+    this.rig.cancelSpin();
   }
 
   /** Muzzle position in world space for an aim direction (follows the rig's shoulder). */
@@ -197,6 +224,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.hurtPending = true;
     this.slideMs = 0;
     this.climb = null;
+    this.endSpin();
   }
 
   /** A hit that should play the hurt pose without moving the body (drowning). */
@@ -294,8 +322,16 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     } else {
       const kind = this.jumpCtl.step(dtMs, grounded, inp.jumpPressed);
       if (kind) {
-        const scale = kind === 'air' ? TUNING.airJumpScale : 1;
+        // running jumps tuck into a somersault; standing jumps stay upright for aiming;
+        // the double jump is always a quick flip
+        const running =
+          Math.abs(inp.axisX) >= TUNING.spin.runThreshold ||
+          Math.abs(body.velocity.x) >= this.def.runSpeed * TUNING.spin.runThreshold;
+        const spin = kind === 'air' || running;
+        const scale = kind === 'air' ? TUNING.airJumpScale : spin ? TUNING.spin.jumpScale : 1;
         body.setVelocityY(-this.def.jumpVelocity * scale);
+        if (spin) this.startSpin(kind === 'air');
+        else this.endSpin();
         this.jumpCutDone = false;
         jumped = true;
         sfx.jump();
@@ -304,8 +340,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // --- variable jump height: releasing early cuts the rise once
-    if (!this.jumpCutDone && !inp.jumpHeld && body.velocity.y < 0) {
+    // --- variable jump height: releasing early cuts the rise once (somersaults keep a fixed arc)
+    if (!this.jumpCutDone && !this.spinning && !inp.jumpHeld && body.velocity.y < 0) {
       body.setVelocityY(body.velocity.y * TUNING.jumpCutMultiplier);
       this.jumpCutDone = true;
     }
@@ -454,6 +490,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       b.velocity.y *= TUNING.water.entrySpeedKeep;
       this.pounding = false;
       this.slideMs = 0;
+      this.endSpin();
       this.jumpCtl.clear();
     } else if (prev.inWater && !next.inWater) {
       fx.splash(this.x, prev.surfaceY, 0.25);
@@ -473,6 +510,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     }
     this.fallSpeed = grounded ? 0 : Math.max(0, b.velocity.y);
     this.wasGrounded = grounded;
+    // a somersault ends on landing, or when a slide, ground-pound or climb takes over
+    if (this.spinning && (grounded || this.slideMs > 0 || this.pounding || this.climb)) this.endSpin();
     this.anim.step(dtMs, {
       grounded,
       vx: b.velocity.x,
@@ -480,6 +519,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       runSpeed: this.def.runSpeed,
       crouch: this.crouching,
       sliding: this.slideMs > 0,
+      spinning: this.spinning,
       inWater: this.inWater,
       submerged: this.submerged,
       climbing: this.climb !== null,
@@ -508,6 +548,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         armReady: !blocked && !this.climbing,
         reload: a?.reloadProgress ?? null,
         swimDir: this.swimDir,
+        spinRate: this.spinFast ? TUNING.spin.fastTurnsPerSec : TUNING.spin.turnsPerSec,
       },
       this.x,
       this.feetY,
@@ -542,6 +583,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.surgeMs = 0;
     this.pounding = false;
     this.crouching = false;
+    this.spinning = false;
+    this.spinFast = false;
     this.climb = null;
     this.waterJumpMs = 0;
     this.water = DRY;

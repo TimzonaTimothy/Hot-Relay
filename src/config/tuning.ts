@@ -114,6 +114,20 @@ export const TUNING = {
     lowFrac: 0.3,
   },
 
+  /**
+   * Somersault jump (MOVE-08). A running jump tucks into a spin with a fixed, slightly higher
+   * arc (releasing jump early does not cut it) and the small crouch hitbox. Firing unfurls the
+   * operator into the upright aim pose for the rest of the jump. Standing jumps stay upright.
+   */
+  spin: {
+    /** Horizontal speed (share of run speed) or stick tilt that turns a jump into a somersault. */
+    runThreshold: 0.35,
+    jumpScale: 1.06,
+    turnsPerSec: 2.4,
+    /** The double jump is always a quicker flip. */
+    fastTurnsPerSec: 3.6,
+  },
+
   // --- operators 5–8 (Tomás, Farida, Sione, KAI-7)
   /** Tomás's sentry: dropped on tag-in, one at a time. */
   sentry: { lifeMs: 9000, range: 170, fireRate: 4, damage: 0.8, bulletSpeed: 360 },
