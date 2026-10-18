@@ -511,7 +511,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.fallSpeed = grounded ? 0 : Math.max(0, b.velocity.y);
     this.wasGrounded = grounded;
     // a somersault ends on landing, or when a slide, ground-pound or climb takes over
-    if (this.spinning && (grounded || this.slideMs > 0 || this.pounding || this.climb)) this.endSpin();
+    if (this.spinning && (grounded || this.slideMs > 0 || this.pounding || this.climb))
+      this.endSpin();
     this.anim.step(dtMs, {
       grounded,
       vx: b.velocity.x,

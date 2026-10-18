@@ -37,7 +37,11 @@ export function viewSize(z: number, canvasW: number, canvasH: number): { w: numb
  * Where scroll-factor-0 objects must sit (in canvas units) to line up with the screen's
  * top-left corner: the camera zooms around its centre.
  */
-export function screenOrigin(z: number, canvasW: number, canvasH: number): { x: number; y: number } {
+export function screenOrigin(
+  z: number,
+  canvasW: number,
+  canvasH: number,
+): { x: number; y: number } {
   const v = viewSize(z, canvasW, canvasH);
   return { x: (canvasW - v.w) / 2, y: (canvasH - v.h) / 2 };
 }

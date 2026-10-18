@@ -21,15 +21,9 @@ import type { RigId } from '../art/characters';
 import { WEAPONS, type WeaponDef, type WeaponId } from './weapons';
 
 export type EntryAttack =
-  | 'slide'
-  | 'pound'
-  | 'pierce'
-  | 'surge'
-  | 'sentry'
-  | 'blast'
-  | 'pulse'
-  | 'phase';
-export type OperatorId = 'kemi' | 'rurik' | 'meilin' | 'tari' | 'tomas' | 'farida' | 'sione' | 'kai7';
+  'slide' | 'pound' | 'pierce' | 'surge' | 'sentry' | 'blast' | 'pulse' | 'phase';
+export type OperatorId =
+  'kemi' | 'rurik' | 'meilin' | 'tari' | 'tomas' | 'farida' | 'sione' | 'kai7';
 
 /** How an operator is unlocked; absent = available from the start. */
 export type Unlock = 'firstClear';

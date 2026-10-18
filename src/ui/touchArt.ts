@@ -24,7 +24,11 @@ export const BUTTON_LOOKS = {
 export type ButtonName = keyof typeof BUTTON_LOOKS;
 
 /** Paint (once) both states and return the idle and lit texture keys. */
-export function touchButtonTextures(scene: Phaser.Scene, name: ButtonName, r: number): { idle: string; lit: string } {
+export function touchButtonTextures(
+  scene: Phaser.Scene,
+  name: ButtonName,
+  r: number,
+): { idle: string; lit: string } {
   const idle = `touch-${name}-${r}`;
   const lit = `${idle}-on`;
   if (!scene.textures.exists(idle)) paint(scene, idle, BUTTON_LOOKS[name], r, false);

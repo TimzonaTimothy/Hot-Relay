@@ -26,7 +26,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 ## Now
 
 - **Ongoing:** SETUP-02 (PR #2 merged to main 2026-10-15; owner must enable Pages), PERF-01 (low-detail mode done; phone numbers to do), TEST-01 (needs 3 real devices — now also covers the character rigs, see PERF-01)
-- **Next up:** TEST-02/03 playtests — send testers `?playtest=1` links (see README → Running a playtest), PERF-01 real-phone numbers (try `?detail=low`), CHAR-16 (second water enemy pass), RES-02…RES-07
+- **Next up:** TEST-02/03 playtests — send testers `?playtest=1` links (see README → Running a playtest), PERF-01/TEST-01 real-phone numbers — send `?stage=stress&playtest=1` to 3 phones and collect the export, CHAR-16 (second water enemy pass), RES-02…RES-07
 - **Current gate:** G3 prototype + character/swimming/insertion vertical slice → G4 playtests
 - **Blocked:** H2 and H4 need 15–20 real testers (RES-13)
 - **Last session (2026-10-15):** Character system vertical slice: four data-driven operators (Tari added),
@@ -281,7 +281,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [ ] ANALYTICS-01 Event endpoint + Postgres events table (G4)
 - [ ] ANALYTICS-02 Events: start, first fight, deaths by section, swaps, clear, replay, session length, offline (G4) — started: events logged in memory (window.__hotRelay.telemetry); upload is ANALYTICS-01
 - [x] ANALYTICS-03 End-of-stage 3-question survey (G4) — `?playtest=1`: survey (fun 1–5, controls 1–5, play another?) after each clear; every attempt recorded on the device (outcome, time, first fight, downs per section, swaps/min, main input, fps, replay); Menu → Playtest data shows the Gate 4 numbers and exports a JSON file (copy / download); no backend (done 2026-10-16)
-- [ ] ANALYTICS-04 fps sampling (p50, p10) by device (G4)
+- [x] ANALYTICS-04 fps sampling (p50, p10) by device (G4) — every playtest run and every stress test (`?stage=stress`) records p50/p10 with the device; the playtest export and Menu → Playtest data group them by device label (Android phone, iPhone, iPad, Mac, Windows PC…) against H10 (55/45); testers can send phone numbers without a laptop (done 2026-10-18)
 - [ ] ANALYTICS-05 Error tracking in client + API (G6)
 - [ ] ANALYTICS-06 Metrics dashboard: D1, D7, completion, conversion (G6)
 

@@ -90,7 +90,13 @@ Playtest mode is remembered on their device until `?playtest=0`.
    it into a message). The screen also shows the Gate 4 numbers for that device.
 
 The file starts with a summary (3-minute sessions, clear rate by control for H4, relay vs solo
-and swaps per minute for H2, survey averages), followed by every run. Nothing is uploaded:
+and swaps per minute for H2, survey averages, frame rate by device for H10), followed by every
+run and every stress test.
+
+**Phone frame-rate test (H10 / TEST-01 / PERF-01):** ask a tester to open
+`https://<your-host>/?stage=stress&playtest=1` on their phone, wait for the result (about 15 s),
+then **Menu → Playtest data → Download file**. The summary lists each kind of device (e.g.
+"Android phone", "iPhone") with median and slowest-10% fps and whether it meets 55/45. Nothing is uploaded:
 there is no backend until Gate 4 passes. Telemetry events are also in memory
 (`window.__hotRelay.telemetry.records`); uploading them is ANALYTICS-01.
 

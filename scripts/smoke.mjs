@@ -391,7 +391,11 @@ try {
     };
     const single = await apex(false);
     const twice = await apex(true);
-    check('double jump goes higher than a single jump', twice > single + 20, `single ${Math.round(single)} px, double ${Math.round(twice)} px`);
+    check(
+      'double jump goes higher than a single jump',
+      twice > single + 20,
+      `single ${Math.round(single)} px, double ${Math.round(twice)} px`,
+    );
 
     // Kemi drops into channel 1, floats, and climbs out by pushing into the far quay
     await dbg('teleport', 744, 236);
@@ -506,7 +510,19 @@ try {
     await page.keyboard.up('ArrowRight');
     await waitState(page, (x) => x.scene === 'results', 8000);
     await sleep(300);
-    const keys = ['ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowDown', 'ArrowRight', 'ArrowRight', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'Enter'];
+    const keys = [
+      'ArrowRight',
+      'ArrowRight',
+      'ArrowRight',
+      'ArrowRight',
+      'ArrowDown',
+      'ArrowRight',
+      'ArrowRight',
+      'ArrowDown',
+      'ArrowRight',
+      'ArrowDown',
+      'Enter',
+    ];
     for (const k of keys) {
       await page.keyboard.press(k);
       await sleep(90);
@@ -517,11 +533,21 @@ try {
     const last = runs[runs.length - 1];
     check(
       'playtest run recorded with survey answers',
-      runs.length >= 1 && last.outcome === 'clear' && last.survey?.fun === 4 && last.survey?.controls === 2 && last.survey?.again === 'yes',
-      last ? `${last.outcome}, ${(last.timeMs / 1000).toFixed(1)} s, survey ${JSON.stringify(last.survey)}` : 'no run',
+      runs.length >= 1 &&
+        last.outcome === 'clear' &&
+        last.survey?.fun === 4 &&
+        last.survey?.controls === 2 &&
+        last.survey?.again === 'yes',
+      last
+        ? `${last.outcome}, ${(last.timeMs / 1000).toFixed(1)} s, survey ${JSON.stringify(last.survey)}`
+        : 'no run',
     );
     const file = await page.evaluate(() => JSON.parse(window.__hotRelay.playtest.exportJson()));
-    check('playtest export has summary and runs', file.format === 'hot-relay-playtest' && file.summary.runs === runs.length, `${file.summary.runs} runs`);
+    check(
+      'playtest export has summary and runs',
+      file.format === 'hot-relay-playtest' && file.summary.runs === runs.length,
+      `${file.summary.runs} runs`,
+    );
     check('playtest checks ran without errors', errs.length === 0, errs.slice(0, 3).join(' | '));
     await ctx.close();
   }
@@ -548,7 +574,11 @@ try {
     const flying = await sc(() => window.__hotRelay.debug.scene.grenades.group.countActive(true));
     await sleep(2600);
     const left = await sc(() => window.__hotRelay.debug.scene.grenades.group.countActive(true));
-    check('Farida throws a grenade that explodes', flying >= 1 && left === 0, `in flight ${flying}, after ${left}`);
+    check(
+      'Farida throws a grenade that explodes',
+      flying >= 1 && left === 0,
+      `in flight ${flying}, after ${left}`,
+    );
     // Sione: shield pulse gives every standing member +1 armour
     await sc(() => window.__hotRelay.debug.scene.squad.members.forEach((m) => (m.armour = 0)));
     await sleep(1700);
@@ -556,14 +586,22 @@ try {
     await sleep(200);
     const arm = await sc(() => window.__hotRelay.debug.scene.squad.members.map((m) => m.armour));
     s = await state(page);
-    check('Sione tags in with a shield pulse (+1 armour each)', s.active === 'sione' && arm.every((a) => a >= 1), `active ${s.active}, armour ${arm.join('/')}`);
+    check(
+      'Sione tags in with a shield pulse (+1 armour each)',
+      s.active === 'sione' && arm.every((a) => a >= 1),
+      `active ${s.active}, armour ${arm.join('/')}`,
+    );
     // Tomás: sentry lands and shoots at enemies in range
     await sleep(1700);
     await page.keyboard.press('KeyC');
     await sleep(1600);
     const sentry = await sc(() => !!window.__hotRelay.debug.scene.sentry);
     s = await state(page);
-    check('Tomás tags in and drops a sentry', s.active === 'tomas' && sentry, `active ${s.active}, sentry ${sentry}`);
+    check(
+      'Tomás tags in and drops a sentry',
+      s.active === 'tomas' && sentry,
+      `active ${s.active}, sentry ${sentry}`,
+    );
     check('operators 5–7 ran without errors', errs.length === 0, errs.slice(0, 3).join(' | '));
     await ctx.close();
   }
@@ -583,9 +621,17 @@ try {
     await sleep(80);
     const r = await page.evaluate(() => {
       const sc = window.__hotRelay.debug.scene;
-      return { charge: sc.absorbCharge, bolts: sc.pBullets.group.countActive(true), armour: sc.squad.active.armour };
+      return {
+        charge: sc.absorbCharge,
+        bolts: sc.pBullets.group.countActive(true),
+        armour: sc.squad.active.armour,
+      };
     });
-    check('KAI-7 turns 3 absorbed hits into a counter-blast', r.charge === 0 && r.bolts >= 8, `bolts ${r.bolts}, armour ${r.armour}`);
+    check(
+      'KAI-7 turns 3 absorbed hits into a counter-blast',
+      r.charge === 0 && r.bolts >= 8,
+      `bolts ${r.bolts}, armour ${r.armour}`,
+    );
     check('KAI-7 check ran without errors', errs.length === 0, errs.slice(0, 3).join(' | '));
     await ctx.close();
   }
@@ -794,6 +840,15 @@ try {
       'stress test completes',
       r.frames > 50 && errs.length === 0,
       `p50 ${r.p50} fps, p10 ${r.p10} fps, ${r.frames} frames (software GL)`,
+    );
+    // ANALYTICS-04: the result is kept for export, grouped by device
+    await sleep(300);
+    const file = await page.evaluate(() => JSON.parse(window.__hotRelay.playtest.exportJson()));
+    const row = file.summary.fpsByDevice[0];
+    check(
+      'stress result is kept in the playtest export by device',
+      file.stress.length >= 1 && !!row && row.stressTests >= 1,
+      row ? `${row.device}: ${row.stressP50}/${row.stressP10}` : 'no rows',
     );
     await ctx.close();
   }

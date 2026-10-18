@@ -17,7 +17,8 @@ export class BootScene extends Phaser.Scene {
     input.attach();
     telemetry.debug = FLAGS.debug;
     const [data] = await Promise.all([saves.load(), loadFonts(), playtest.load()]);
-    if (FLAGS.playtest !== null && FLAGS.playtest !== playtest.enabled) await playtest.setEnabled(FLAGS.playtest);
+    if (FLAGS.playtest !== null && FLAGS.playtest !== playtest.enabled)
+      await playtest.setEnabled(FLAGS.playtest);
     sfx.setVolume(data.settings.volume);
     telemetry.log('session_start', { ...telemetry.context(), mode: FLAGS.mode });
     window.__hotRelay = { telemetry, playtest };

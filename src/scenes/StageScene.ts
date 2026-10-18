@@ -8,15 +8,15 @@
  * insertion); this scene wires them to the rules.
  */
 import Phaser from 'phaser';
+import { CANVAS_H, CANVAS_W, COLORS, DEPTH, SCENES, VIEW_H } from '../config/constants';
 import {
-  CANVAS_H,
-  CANVAS_W,
-  COLORS,
-  DEPTH,
-  SCENES,
-  VIEW_H,
-} from '../config/constants';
-import { ZOOM_MIN, approachZoom, nextZoom, screenOrigin, viewSize, zoomLabel } from '../systems/viewZoom';
+  ZOOM_MIN,
+  approachZoom,
+  nextZoom,
+  screenOrigin,
+  viewSize,
+  zoomLabel,
+} from '../systems/viewZoom';
 import { TUNING } from '../config/tuning';
 import { resolveSquad, type EntryAttack, type OperatorDef } from '../data/operators';
 import { shotStats } from '../data/weapons';
@@ -36,7 +36,13 @@ import { assistAim, type Vec } from '../systems/aim';
 import { sfx } from '../systems/Sfx';
 import { telemetry } from '../systems/Telemetry';
 import { playtest, saves } from '../systems/services';
-import { dominantInput, swapsPerMinute, type InputKind, type RunOutcome } from '../systems/playtest';
+import {
+  currentDevice,
+  dominantInput,
+  swapsPerMinute,
+  type InputKind,
+  type RunOutcome,
+} from '../systems/playtest';
 import { computeRank, isBetterRun } from '../systems/rank';
 import { FpsMeter } from '../systems/FpsMeter';
 import { FLAGS } from '../systems/flags';
@@ -507,13 +513,18 @@ export class StageScene extends Phaser.Scene {
       this.onBulletHitEnemy(bulletOf(a, b), enemyOf(a, b)),
     );
     // Farida's grenades burst on walls and floors at once, on enemies only once armed
-    const grenadeOf = (a: unknown, b: unknown): Grenade => (a instanceof Grenade ? a : (b as Grenade));
+    const grenadeOf = (a: unknown, b: unknown): Grenade =>
+      a instanceof Grenade ? a : (b as Grenade);
     const boom = (a: unknown, b: unknown) => this.detonate(grenadeOf(a, b));
     this.physics.add.collider(this.grenades.group, this.solids, boom);
     this.physics.add.collider(this.grenades.group, this.breakables, boom);
     this.physics.add.collider(this.grenades.group, this.oneways, boom, (a, b) => {
       const gr = grenadeOf(a, b);
-      return this.landsOnOneWay(gr.body as Phaser.Physics.Arcade.Body, otherOf(a, b, gr) as Phaser.GameObjects.Rectangle, true);
+      return this.landsOnOneWay(
+        gr.body as Phaser.Physics.Arcade.Body,
+        otherOf(a, b, gr) as Phaser.GameObjects.Rectangle,
+        true,
+      );
     });
     this.physics.add.overlap(this.grenades.group, this.enemies, (a, b) => {
       const gr = grenadeOf(a, b);
@@ -1094,7 +1105,8 @@ export class StageScene extends Phaser.Scene {
         // Tomás: a turret lands where he arrives (one at a time); not underwater
         if (p.submerged) break;
         this.sentry?.destroy();
-        const feetY = groundBelow(this.def.platforms, p.x + p.facing * 10, p.feetY - 4, 60) ?? p.feetY;
+        const feetY =
+          groundBelow(this.def.platforms, p.x + p.facing * 10, p.feetY - 4, 60) ?? p.feetY;
         this.sentry = new Sentry(this, p.x + p.facing * 10, feetY, p.facing);
         this.fx.dust(p.x + p.facing * 10, feetY, 6);
         sfx.weaponSwitch();
@@ -1133,7 +1145,8 @@ export class StageScene extends Phaser.Scene {
       e.stun(t.stunMs);
       e.arcadeBody.setVelocityX(Math.sign(e.x - p.x || 1) * t.knock);
     }
-    for (const m of this.squad.members) if (!m.down) m.armour = Math.min(m.def.maxArmour, m.armour + 1);
+    for (const m of this.squad.members)
+      if (!m.down) m.armour = Math.min(m.def.maxArmour, m.armour + 1);
     const ring = this.add
       .ellipse(p.x, p.y - 6, 12, 12)
       .setStrokeStyle(2.5, 0xb48cff)
@@ -1157,7 +1170,18 @@ export class StageScene extends Phaser.Scene {
       if (dir) {
         const m = s.muzzle;
         const t = TUNING.sentry;
-        this.pBullets.fire({ x: m.x, y: m.y, dirX: dir.x, dirY: dir.y, speed: t.bulletSpeed, damage: t.damage, pierce: 1, lifeMs: TUNING.bulletLifeMs, length: 4, tint: 0xfff0a0 });
+        this.pBullets.fire({
+          x: m.x,
+          y: m.y,
+          dirX: dir.x,
+          dirY: dir.y,
+          speed: t.bulletSpeed,
+          damage: t.damage,
+          pierce: 1,
+          lifeMs: TUNING.bulletLifeMs,
+          length: 4,
+          tint: 0xfff0a0,
+        });
         this.fx.muzzle(m.x, m.y, Math.atan2(dir.y, dir.x), 0.6, false, 0xfff0a0);
         sfx.shoot(980);
       }
@@ -1183,7 +1207,18 @@ export class StageScene extends Phaser.Scene {
     const t = TUNING.counter;
     for (let k = 0; k < t.bolts; k++) {
       const a = (k / t.bolts) * Math.PI * 2;
-      this.pBullets.fire({ x: p.x, y: p.y - 4, dirX: Math.cos(a), dirY: Math.sin(a), speed: t.speed, damage: t.damage, pierce: t.pierce, lifeMs: TUNING.bulletLifeMs, length: 7, tint: 0x7ff3ff });
+      this.pBullets.fire({
+        x: p.x,
+        y: p.y - 4,
+        dirX: Math.cos(a),
+        dirY: Math.sin(a),
+        speed: t.speed,
+        damage: t.damage,
+        pierce: t.pierce,
+        lifeMs: TUNING.bulletLifeMs,
+        length: 7,
+        tint: 0x7ff3ff,
+      });
     }
     this.fx.dust(p.x, p.y, 8, 0x7ff3ff);
     this.shake(TUNING.shakePound);
@@ -1601,13 +1636,7 @@ export class StageScene extends Phaser.Scene {
       fpsP10: fps.p10,
       detail: this.detail ?? 'high',
       replay: this.replay,
-      device: {
-        touch: navigator.maxTouchPoints > 0,
-        screen: `${screen.width}x${screen.height}`,
-        dpr: window.devicePixelRatio || 1,
-        standalone: ctx.standalone === true,
-        ua: navigator.userAgent,
-      },
+      device: currentDevice(ctx.standalone === true),
       survey: null,
     });
     return id;

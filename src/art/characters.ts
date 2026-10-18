@@ -16,15 +16,7 @@ import type { WeaponId } from '../data/weapons';
 export const PART_RES = 6;
 
 export type RigId =
-  | 'kemi'
-  | 'rurik'
-  | 'meilin'
-  | 'tari'
-  | 'tomas'
-  | 'farida'
-  | 'sione'
-  | 'kai7'
-  | 'contractor';
+  'kemi' | 'rurik' | 'meilin' | 'tari' | 'tomas' | 'farida' | 'sione' | 'kai7' | 'contractor';
 
 /** Colours and build of one character. */
 export interface Look {

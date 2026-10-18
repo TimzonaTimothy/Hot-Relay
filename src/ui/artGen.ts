@@ -38,7 +38,6 @@ function withCanvas(
   tex.refresh();
 }
 
-
 export function generateArt(scene: Phaser.Scene): void {
   OPERATORS.forEach((op) => {
     portrait(scene, op);
@@ -98,7 +97,11 @@ function portrait(scene: Phaser.Scene, op: OperatorDef): void {
         g.fillStyle(hex(k.top), 1).fillRect(0, 11, 4, 5); // pauldron
         break;
       case 'meilin':
-        g.fillStyle(hair, 1).fillRect(4, 2, 8, 3).fillRect(3, 3, 1, 4).fillRect(12, 2, 3, 2).fillRect(14, 3, 2, 8);
+        g.fillStyle(hair, 1)
+          .fillRect(4, 2, 8, 3)
+          .fillRect(3, 3, 1, 4)
+          .fillRect(12, 2, 3, 2)
+          .fillRect(14, 3, 2, 8);
         g.fillStyle(0xd9ffd0, 1).fillRect(9, 7, 2, 1); // monocle
         g.fillStyle(0x3f8a5a, 1).fillRect(4, 12, 8, 1); // scarf
         break;

@@ -25,7 +25,8 @@ import { input } from '../systems/InputManager';
 import { telemetry } from '../systems/Telemetry';
 import { Effects } from '../stage/Effects';
 import { FLAGS } from '../systems/flags';
-import { saves } from '../systems/services';
+import { playtest, saves } from '../systems/services';
+import { currentDevice } from '../systems/playtest';
 import { resolveDetail } from '../systems/detail';
 
 const ENEMIES = 60;
@@ -183,6 +184,17 @@ export class StressScene extends Phaser.Scene {
       ...telemetry.context(),
     });
     if (window.__hotRelay) window.__hotRelay.stress = { ...s, detail: this.detail };
+    // kept in the playtest log so phone results come back in the exported file (ANALYTICS-04)
+    void playtest.addStress({
+      id: `${telemetry.sessionId}-stress-${Date.now().toString(36)}`,
+      at: new Date().toISOString(),
+      build: __BUILD__,
+      p50: s.p50,
+      p10: s.p10,
+      frames: s.frames,
+      detail: this.detail,
+      device: currentDevice(telemetry.context().standalone === true),
+    });
     const overlay = this.add
       .rectangle(CANVAS_W, CANVAS_H, CANVAS_W * 2, CANVAS_H * 2, 0x0e1116, 0.85)
       .setDepth(200);

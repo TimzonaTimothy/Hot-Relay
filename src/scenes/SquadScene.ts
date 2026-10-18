@@ -8,7 +8,13 @@
  */
 import Phaser from 'phaser';
 import { CANVAS_H, CANVAS_W, SCENES } from '../config/constants';
-import { OPERATORS, isUnlocked, resolveSquad, unlockHint, type OperatorDef } from '../data/operators';
+import {
+  OPERATORS,
+  isUnlocked,
+  resolveSquad,
+  unlockHint,
+  type OperatorDef,
+} from '../data/operators';
 import { WEAPONS } from '../data/weapons';
 import { Rig } from '../entities/Rig';
 import { input } from '../systems/InputManager';
@@ -130,14 +136,21 @@ export class SquadScene extends Phaser.Scene {
             x + 26,
             TOP + 218,
             locked ? `LOCKED · ${unlockHint(op)}` : op.blurb,
-            txt('body', 12, locked ? CSSC.signal : CSSC.muted, { wordWrap: { width: CARD_W - 44 } }),
+            txt('body', 12, locked ? CSSC.signal : CSSC.muted, {
+              wordWrap: { width: CARD_W - 44 },
+            }),
           )
           .setDepth(3),
       );
       STATS.forEach((s, k) => {
         texts.push(
           this.add
-            .text(x + 26, TOP + 250 + k * 15, s.label, txt('hud', 15, CSSC.dim, { letterSpacing: 2 }))
+            .text(
+              x + 26,
+              TOP + 250 + k * 15,
+              s.label,
+              txt('hud', 15, CSSC.dim, { letterSpacing: 2 }),
+            )
             .setDepth(3),
         );
       });
@@ -255,10 +268,14 @@ export class SquadScene extends Phaser.Scene {
     const f = input.consume();
     if (!this.leaving) {
       if (f.leftPressed)
-        this.cursor = this.cursor === DEPLOY ? Math.min(DEPLOY - 1, this.page * PAGE + PAGE - 1) : Math.max(0, this.cursor - 1);
+        this.cursor =
+          this.cursor === DEPLOY
+            ? Math.min(DEPLOY - 1, this.page * PAGE + PAGE - 1)
+            : Math.max(0, this.cursor - 1);
       if (f.rightPressed) this.cursor = Math.min(DEPLOY, this.cursor + 1);
       if (f.downPressed) this.cursor = DEPLOY;
-      if (f.upPressed && this.cursor === DEPLOY) this.cursor = Math.min(DEPLOY - 1, this.page * PAGE);
+      if (f.upPressed && this.cursor === DEPLOY)
+        this.cursor = Math.min(DEPLOY - 1, this.page * PAGE);
       // moving the cursor onto another page's card turns the page
       if (this.cursor < DEPLOY) this.page = Math.floor(this.cursor / PAGE);
       if (f.leftPressed || f.rightPressed || f.downPressed || f.upPressed) sfx.ui();
@@ -373,8 +390,8 @@ export class SquadScene extends Phaser.Scene {
       this.noticeMs > 0
         ? this.notice
         : ready
-        ? `RELAY: ${this.picked.map((o) => o.name.toUpperCase()).join('  ›  ')}`
-        : `Pick ${this.need - this.picked.length} more  ·  Jump/Fire or tap to pick  ·  Esc back`,
+          ? `RELAY: ${this.picked.map((o) => o.name.toUpperCase()).join('  ›  ')}`
+          : `Pick ${this.need - this.picked.length} more  ·  Jump/Fire or tap to pick  ·  Esc back`,
     );
     void CANVAS_H;
   }

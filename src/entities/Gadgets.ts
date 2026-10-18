@@ -39,7 +39,12 @@ export class Sentry {
       .setRotation(this.angle)
       .setDepth(DEPTH.player - 1);
     // drop-in: lands with a little squash
-    scene.tweens.add({ targets: [this.base, this.gun], scaleY: { from: S * 1.4, to: S }, duration: 200, ease: 'Back.easeOut' });
+    scene.tweens.add({
+      targets: [this.base, this.gun],
+      scaleY: { from: S * 1.4, to: S },
+      duration: 200,
+      ease: 'Back.easeOut',
+    });
   }
 
   get muzzle(): { x: number; y: number } {
@@ -47,7 +52,11 @@ export class Sentry {
   }
 
   /** Returns a firing direction this step, or null. */
-  step(dtMs: number, enemies: readonly Enemy[], view: Phaser.Geom.Rectangle): { x: number; y: number } | null {
+  step(
+    dtMs: number,
+    enemies: readonly Enemy[],
+    view: Phaser.Geom.Rectangle,
+  ): { x: number; y: number } | null {
     if (this.done) return null;
     this.lifeMs -= dtMs;
     if (this.lifeMs <= 0) {
@@ -98,7 +107,11 @@ export class GrenadePool {
   readonly group: Phaser.Physics.Arcade.Group;
 
   constructor(scene: Phaser.Scene, size = 12) {
-    this.group = scene.physics.add.group({ classType: Grenade, maxSize: size, runChildUpdate: false });
+    this.group = scene.physics.add.group({
+      classType: Grenade,
+      maxSize: size,
+      runChildUpdate: false,
+    });
     for (let i = 0; i < size; i++) {
       const g = this.group.create(-100, -100, 'grenade') as Grenade;
       g.setScale(S).setDepth(DEPTH.bullets);

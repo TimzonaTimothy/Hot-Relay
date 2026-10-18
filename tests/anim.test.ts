@@ -87,8 +87,12 @@ describe('AnimStateMachine', () => {
 
 describe('somersault (MOVE-08)', () => {
   it('an airborne spinning operator is in the spin state, rising or falling', () => {
-    expect(desiredState({ ...base, grounded: false, vy: -200, spinning: true }, 'run')).toBe('spin');
-    expect(desiredState({ ...base, grounded: false, vy: 150, spinning: true }, 'spin')).toBe('spin');
+    expect(desiredState({ ...base, grounded: false, vy: -200, spinning: true }, 'run')).toBe(
+      'spin',
+    );
+    expect(desiredState({ ...base, grounded: false, vy: 150, spinning: true }, 'spin')).toBe(
+      'spin',
+    );
   });
   it('unfurling (firing) drops back to the normal jump and fall poses', () => {
     expect(desiredState({ ...base, grounded: false, vy: -100 }, 'spin')).toBe('jump');
@@ -106,6 +110,8 @@ describe('somersault (MOVE-08)', () => {
     expect(m.state).toBe('land');
   });
   it('swimming wins over spinning', () => {
-    expect(desiredState({ ...base, grounded: false, inWater: true, spinning: true }, 'spin')).toBe('swimSurface');
+    expect(desiredState({ ...base, grounded: false, inWater: true, spinning: true }, 'spin')).toBe(
+      'swimSurface',
+    );
   });
 });

@@ -35,7 +35,7 @@ export class PlaytestScene extends Phaser.Scene {
       .text(60, 104, '', txt('body', 15, CSSC.bone, { lineSpacing: 5, wordWrap: { width: 540 } }))
       .setOrigin(0, 0);
     this.status = this.add
-      .text(CANVAS_W / 2, 505, '', txt('hud', 22, CSSC.ok, { letterSpacing: 1 }))
+      .text(CANVAS_W / 2, 522, '', txt('hud', 22, CSSC.ok, { letterSpacing: 1 }))
       .setOrigin(0.5);
     this.refresh();
 
@@ -78,7 +78,10 @@ export class PlaytestScene extends Phaser.Scene {
       ok = document.execCommand('copy');
       ta.remove();
     }
-    this.say(ok ? 'Copied: paste it into a message to the team' : 'Copy failed: use Download file', ok);
+    this.say(
+      ok ? 'Copied: paste it into a message to the team' : 'Copy failed: use Download file',
+      ok,
+    );
   }
 
   private download(): void {
@@ -123,7 +126,18 @@ const grp = (g: GroupStats) => `${g.clears}/${g.runs} cleared (${pct(g.clearRate
 
 /** Plain-language summary of the numbers each Gate 4 test looks at. */
 export function describe(s: PlaytestSummary): string {
-  if (s.runs === 0) return 'No runs recorded on this device yet.\nPlay a stage, then come back here to export the results.';
+  if (s.runs === 0 && s.fpsByDevice.length === 0)
+    return 'No runs recorded on this device yet.\nPlay a stage (or the stress test), then come back here to export the results.';
+  const fps = (a: number | null, b: number | null) =>
+    a === null || b === null ? '' : `${Math.round(a)}/${Math.round(b)}`;
+  const devices = s.fpsByDevice.slice(0, 3).map((d) => {
+    const parts = [
+      d.stressTests ? `stress ${fps(d.stressP50, d.stressP10)} (${d.stressTests})` : '',
+      d.runs ? `play ${fps(d.runP50, d.runP10)}` : '',
+    ].filter(Boolean);
+    const verdict = d.meetsTarget === null ? '' : d.meetsTarget ? '  ✓ H10' : '  ✗ below H10';
+    return `  ${d.device}: ${parts.join(' · ')}${verdict}`;
+  });
   const sec = s.downsBySection.map((n, i) => `${i === 0 ? 'start' : `CP${i}`} ${n}`).join(' · ');
   return [
     `Runs ${s.runs} · sessions ${s.sessions} · replays ${s.replays}`,
@@ -139,6 +153,8 @@ export function describe(s: PlaytestSummary): string {
     `  Gamepad  ${grp(s.byInput.gamepad)}`,
     '',
     `Operators down by section: ${sec}`,
+    'fps median/slowest 10% by device (H10: 55/45)',
+    ...devices,
     `Survey ${s.survey.answered} answered · fun ${num(s.survey.fun, '/5')} · controls ${num(s.survey.controls, '/5')}`,
     `  Play another stage: yes ${s.survey.again.yes} · maybe ${s.survey.again.maybe} · no ${s.survey.again.no}`,
   ].join('\n');

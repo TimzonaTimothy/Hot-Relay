@@ -95,7 +95,8 @@ export class ResultsScene extends Phaser.Scene {
       [
         {
           label: () => 'Play again',
-          action: () => this.scene.start(SCENES.stage, { mode: d.mode, squad: d.squad, replay: true }),
+          action: () =>
+            this.scene.start(SCENES.stage, { mode: d.mode, squad: d.squad, replay: true }),
         },
         {
           label: () => 'Change squad',
@@ -113,7 +114,8 @@ export class ResultsScene extends Phaser.Scene {
   private showSurvey(runId: string): void {
     const s = this.survey;
     const score = (v: number | null) => (v === null ? '–' : String(v));
-    const step = (v: number | null, dir: 1 | -1) => (v === null ? (dir > 0 ? 1 : 5) : ((v - 1 + dir + 5) % 5) + 1);
+    const step = (v: number | null, dir: 1 | -1) =>
+      v === null ? (dir > 0 ? 1 : 5) : ((v - 1 + dir + 5) % 5) + 1;
     const AGAIN: Again[] = ['yes', 'maybe', 'no'];
     const shade = this.add.rectangle(0, 0, CANVAS_W, 540, PALETTE.ink, 0.82).setOrigin(0);
     const g = this.add.graphics();
@@ -123,20 +125,31 @@ export class ResultsScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setStroke(CSSC.ink, 6);
     const sub = this.add
-      .text(CANVAS_W / 2, 160, 'Three taps — it helps tune the game. 1 = not at all, 5 = very.', txt('body', 14, CSSC.muted))
+      .text(
+        CANVAS_W / 2,
+        160,
+        'Three taps — it helps tune the game. 1 = not at all, 5 = very.',
+        txt('body', 14, CSSC.muted),
+      )
       .setOrigin(0.5);
-    this.surveyNote = this.add.text(CANVAS_W / 2, 430, '', txt('hud', 20, CSSC.signal)).setOrigin(0.5);
+    this.surveyNote = this.add
+      .text(CANVAS_W / 2, 430, '', txt('hud', 20, CSSC.signal))
+      .setOrigin(0.5);
     this.surveyParts = [shade, g, title, sub, this.surveyNote];
     this.menu = new MenuList(
       this,
       [
-        { label: () => `${SURVEY_QUESTIONS.fun}: ${score(s.fun)}`, adjust: (dir) => (s.fun = step(s.fun, dir)) },
+        {
+          label: () => `${SURVEY_QUESTIONS.fun}: ${score(s.fun)}`,
+          adjust: (dir) => (s.fun = step(s.fun, dir)),
+        },
         {
           label: () => `${SURVEY_QUESTIONS.controls}: ${score(s.controls)}`,
           adjust: (dir) => (s.controls = step(s.controls, dir)),
         },
         {
-          label: () => `${SURVEY_QUESTIONS.again}: ${s.again ? s.again[0]!.toUpperCase() + s.again.slice(1) : '–'}`,
+          label: () =>
+            `${SURVEY_QUESTIONS.again}: ${s.again ? s.again[0]!.toUpperCase() + s.again.slice(1) : '–'}`,
           adjust: (dir) => {
             const i = s.again === null ? (dir > 0 ? -1 : AGAIN.length) : AGAIN.indexOf(s.again);
             s.again = AGAIN[(i + dir + AGAIN.length) % AGAIN.length]!;
