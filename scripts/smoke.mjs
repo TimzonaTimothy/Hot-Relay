@@ -264,7 +264,7 @@ try {
         const GATE_X = 4940;
         const cycle = Math.floor((Date.now() - t0) / 450) % 2;
         if (s.boss.cannonsAlive > 0) {
-          if (cycle === 0 && s.x < GATE_X - 70) {
+          if ((cycle === 0 || s.x < GATE_X - 110) && s.x < GATE_X - 55) {
             await page.keyboard.up('ArrowLeft');
             await page.keyboard.down('ArrowUp');
             await page.keyboard.down('ArrowRight');
