@@ -8,6 +8,9 @@ export type TelemetryEvent =
   | 'session_start'
   | 'stage_start'
   | 'zoom'
+  | 'pickup'
+  | 'boss_start'
+  | 'boss_clear'
   | 'first_fight'
   | 'swap'
   | 'operator_down'
@@ -69,6 +72,8 @@ declare global {
         teleport(x: number, feetY: number): void;
         setInvulnerable(ms: number): void;
         enemyShot(x: number, y: number, dirX: number, dirY: number): void;
+        winBoss(): void;
+        spawnDrone(kind: 'fan' | 'hornet' | 'rail'): void;
         clearEnemies(): void;
         /** Visible objects per texture key (PERF-01 checks). */
         visibleByTexture(keys: string[]): Record<string, number>;

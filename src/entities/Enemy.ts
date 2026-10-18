@@ -21,6 +21,8 @@ export interface EnemyContext {
   flashing: boolean;
   water: readonly WaterVolume[];
   fireEnemyBullet(x: number, y: number, dirX: number, dirY: number, speed: number): void;
+  /** Hostile grenade lobbed with a velocity (frogmen). */
+  lobGrenade(x: number, y: number, vx: number, vy: number): void;
   /** Blast that hurts the player and other enemies in range (mines). */
   explode(x: number, y: number, radius: number, damage: number, source: Enemy): void;
   /** Called the first time any enemy starts attacking (telemetry: time to first fight). */

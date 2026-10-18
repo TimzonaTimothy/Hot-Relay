@@ -100,6 +100,16 @@ export class Grenade extends Phaser.Physics.Arcade.Image {
   fuseMs = 0;
   radius = 30;
   damage = 3;
+  /** Thrown by an enemy (frogman): hurts the player, not enemies. */
+  hostile = false;
+}
+
+export interface LobSpec {
+  radius: number;
+  damage: number;
+  gravity: number;
+  armMs: number;
+  fuseMs: number;
 }
 
 /** Lobbed grenades (Farida's Tremor launcher). They explode on impact or when the fuse runs out. */
@@ -122,21 +132,41 @@ export class GrenadePool {
   throw(x: number, y: number, dirX: number, dirY: number, w: WeaponDef): Grenade | null {
     const spec = w.grenade;
     if (!spec) return null;
+    // lobbed: a little extra lift so a level shot still arcs
+    return this.lob(
+      x,
+      y,
+      dirX * w.bulletSpeed,
+      dirY * w.bulletSpeed - 90,
+      { ...spec, damage: w.damage },
+      false,
+    );
+  }
+
+  lob(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    spec: LobSpec,
+    hostile: boolean,
+  ): Grenade | null {
     const g = this.group.getFirstDead(false) as Grenade | null;
     if (!g) return null;
     g.enableBody(true, x, y, true, true);
     g.armMs = spec.armMs;
     g.fuseMs = spec.fuseMs;
     g.radius = spec.radius;
-    g.damage = w.damage;
+    g.damage = spec.damage;
+    g.hostile = hostile;
+    g.setTint(hostile ? 0xff8a6a : 0xffffff);
     const body = g.body as Phaser.Physics.Arcade.Body;
     body.setCircle(2 * FX_RES, 0.5 * FX_RES, 0.5 * FX_RES);
     body.setAllowGravity(true);
     // world gravity is the player's; grenades fly on their own, floatier arc
     body.setGravityY(spec.gravity - TUNING.gravity);
-    // lobbed: a little extra lift so a level shot still arcs
-    body.setVelocity(dirX * w.bulletSpeed, dirY * w.bulletSpeed - 90);
-    body.setAngularVelocity(dirX >= 0 ? 540 : -540);
+    body.setVelocity(vx, vy);
+    body.setAngularVelocity(vx >= 0 ? 540 : -540);
     return g;
   }
 

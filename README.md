@@ -65,6 +65,17 @@ while active; it unlocks after the first stage clear. The squad screen shows fou
 Benched operators regain armour and air. When the active operator goes down, the next one tags
 in automatically; the run fails only when all three are down (retry from the last checkpoint).
 
+## Stage 1 · Harbour approach (what's in it)
+
+Contra-inspired pressure, with original designs: **runners** sprint in from the screen edges in
+some stretches; **wall turrets** and **hatch turrets** (they rise from the deck when you get close)
+turn in 45° steps and flash a line before each shot; **supply drones** cross the sky — shoot one
+down for a pickup crate: **Fan** (5-way spread), **Hornet** (homing), **Rail** (pierces everything).
+A pickup replaces your gun while its ammo lasts and is lost if that operator goes down.
+**Frogmen** surface in the water to lob grenades. The **rigged gangway** blows up under you, and
+the stage ends at the **Lock Gate**: destroy both cannons to drop the core's shield, then destroy
+the core to open the gate.
+
 ## Playtest links
 
 Deploy `dist/` anywhere static (GitHub Pages via the included workflow, itch.io, Netlify), then:

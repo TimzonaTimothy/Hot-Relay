@@ -136,6 +136,7 @@ export class StressScene extends Phaser.Scene {
             lifeMs: 2400,
           }),
         onEngage: () => {},
+        lobGrenade: () => {},
       };
       for (const e of this.enemies) e.step(dt, ctx);
       // keep the total near TARGET_BULLETS with player-style spray from the centre

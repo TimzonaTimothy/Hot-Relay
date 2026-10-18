@@ -55,6 +55,8 @@ export interface HudState {
   showOxygen: boolean;
   cinematic: HudCinematic;
   secrets: number;
+  /** Boss health bar (BOSS-01): name, remaining 0..1, and whether its core is still shielded. */
+  boss: { name: string; frac: number; shielded: boolean } | null;
 }
 
 export const hud: HudState = {
@@ -81,6 +83,7 @@ export const hud: HudState = {
     skippable: false,
   },
   secrets: 0,
+  boss: null,
 };
 
 /** Game-wide event names (emitted on game.events). */

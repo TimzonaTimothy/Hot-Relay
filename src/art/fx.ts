@@ -6,7 +6,7 @@
  * Textures are drawn at FX_RES pixels per world pixel and shown at 1 / FX_RES scale.
  */
 import Phaser from 'phaser';
-import { canvasTexture, inked, poly, roundRect, INK, type Ctx } from './paint';
+import { canvasTexture, inked, poly, rimTop, roundRect, INK, type Ctx } from './paint';
 
 export const FX_RES = 4;
 
@@ -305,6 +305,225 @@ export function generateFxArt(scene: Phaser.Scene): void {
     inked(c, '#5d6b3c', 0.4);
     c.fillStyle = '#e0533d';
     c.fillRect(0.7, 2.2, 3.6, 0.6);
+  });
+
+  // ---- Contra-inspired set: turrets, drones, crates, gangway, frogman, Lock Gate ----
+  const steel = '#4a525c';
+  const steelHi = 'rgba(255,255,255,0.28)';
+  const nullRed = '#e0452f';
+  // wall mount: armoured plate bolted to a container side (pivot at the centre)
+  tex('turret-mount', 16, 16, (c) => {
+    roundRect(c, 1, 1, 14, 14, 2);
+    inked(c, '#3a4048', 0.5);
+    c.fillStyle = nullRed;
+    c.fillRect(2, 12, 12, 1.2);
+    c.fillStyle = '#20252b';
+    for (const [x, y] of [
+      [3, 3],
+      [13, 3],
+      [3, 10],
+      [13, 10],
+    ] as const)
+      c.fillRect(x - 0.6, y - 0.6, 1.2, 1.2);
+  });
+  // deck hatch frame and its sliding lid
+  tex('hatch-frame', 22, 5, (c) => {
+    roundRect(c, 0.5, 0.5, 21, 4, 1);
+    inked(c, '#2a2f36', 0.45);
+    c.fillStyle = '#ffd23f';
+    for (let x = 1.5; x < 20; x += 4) c.fillRect(x, 1.2, 2, 2.6);
+  });
+  tex('hatch-lid', 20, 3, (c) => {
+    roundRect(c, 0.5, 0.5, 19, 2, 0.6);
+    inked(c, steel, 0.4);
+    rimTop(c, 1.5, 18.5, 0.9, steelHi, 0.4);
+  });
+  // turret head (round housing, Nullward orange sensor) and barrel pointing right
+  tex('turret-head', 12, 12, (c) => {
+    c.beginPath();
+    c.arc(6, 6, 5.2, 0, Math.PI * 2);
+    inked(c, steel, 0.5);
+    c.beginPath();
+    c.arc(6, 6, 5.2, Math.PI * 1.1, Math.PI * 1.9);
+    c.strokeStyle = steelHi;
+    c.lineWidth = 0.6;
+    c.stroke();
+    c.beginPath();
+    c.arc(5, 5.2, 1.6, 0, Math.PI * 2);
+    inked(c, '#ff9a3c', 0.35);
+  });
+  tex('turret-barrel', 14, 5, (c) => {
+    roundRect(c, 0.5, 1, 12.6, 3, 0.8);
+    inked(c, '#2d3238', 0.45);
+    roundRect(c, 10, 0.5, 3.4, 4, 0.8);
+    inked(c, '#3a3f45', 0.4);
+  });
+  // supply drone: quad rotor carrying a crate clamp, facing left
+  tex('drone', 26, 12, (c) => {
+    c.strokeStyle = '#20252b';
+    c.lineWidth = 0.9;
+    c.beginPath();
+    c.moveTo(4, 3.4);
+    c.lineTo(22, 3.4);
+    c.stroke();
+    for (const x of [4, 22]) {
+      c.beginPath();
+      c.ellipse(x, 2.2, 4, 1, 0, 0, Math.PI * 2);
+      c.fillStyle = 'rgba(200,210,220,0.45)';
+      c.fill();
+    }
+    roundRect(c, 8, 2.6, 10, 4.6, 1.6);
+    inked(c, '#e8e2d4', 0.5);
+    c.fillStyle = nullRed;
+    c.fillRect(9, 5.6, 8, 0.8);
+    c.beginPath();
+    c.arc(10, 4.4, 0.9, 0, Math.PI * 2);
+    c.fillStyle = '#ff9a3c';
+    c.fill();
+    roundRect(c, 10, 7.4, 6, 3.8, 0.6);
+    inked(c, '#6b5a44', 0.45);
+  });
+  // pickup crates: hovering capsule with a glowing symbol
+  const crate = (key: string, color: string, symbol: (c: Ctx) => void) =>
+    tex(key, 12, 12, (c) => {
+      roundRect(c, 1, 1.5, 10, 9, 1.6);
+      inked(c, '#2b3440', 0.5);
+      rimTop(c, 2, 10, 2.2, steelHi, 0.5);
+      c.save();
+      c.shadowColor = color;
+      c.shadowBlur = 3;
+      c.strokeStyle = color;
+      c.fillStyle = color;
+      c.lineWidth = 0.9;
+      c.lineCap = 'round';
+      symbol(c);
+      c.restore();
+    });
+  crate('crate-fan', '#ffb347', (c) => {
+    c.beginPath();
+    for (const a of [-0.7, -0.35, 0, 0.35, 0.7]) {
+      c.moveTo(3.4, 6);
+      c.lineTo(3.4 + Math.cos(a) * 5.4, 6 + Math.sin(a) * 5.4);
+    }
+    c.stroke();
+  });
+  crate('crate-hornet', '#ff5a5a', (c) => {
+    c.beginPath();
+    c.moveTo(3, 8);
+    c.quadraticCurveTo(6, 8, 7.4, 4.2);
+    c.stroke();
+    poly(c, [
+      [8.8, 3],
+      [6.4, 3.6],
+      [8.2, 5.4],
+    ]);
+    c.fill();
+  });
+  crate('crate-rail', '#d6f4ff', (c) => {
+    c.beginPath();
+    c.moveTo(2.6, 6);
+    c.lineTo(9.6, 6);
+    c.stroke();
+    c.beginPath();
+    c.arc(9.4, 6, 1.4, 0, Math.PI * 2);
+    c.fill();
+  });
+  // rigged gangway segment (24 world px): steel deck, rail, hazard band, a charge under it
+  tex('bridge-seg', 24, 12, (c) => {
+    roundRect(c, 0, 4, 24, 3.4, 0.6);
+    inked(c, '#4a525c', 0.45);
+    rimTop(c, 0.8, 23.2, 4.6, steelHi, 0.5);
+    c.strokeStyle = '#2a2f36';
+    c.lineWidth = 0.6;
+    c.beginPath();
+    c.moveTo(0.5, 0.8);
+    c.lineTo(23.5, 0.8);
+    for (const x of [1, 12, 23]) {
+      c.moveTo(x, 0.8);
+      c.lineTo(x, 4);
+    }
+    c.stroke();
+    c.fillStyle = '#ffd23f';
+    for (let x = 1; x < 23; x += 5) c.fillRect(x, 5.4, 2.4, 1.2);
+    roundRect(c, 9, 7.4, 6, 3, 0.6);
+    inked(c, '#6b4a2e', 0.4);
+    c.fillStyle = nullRed;
+    c.fillRect(11.4, 8.2, 1.2, 1.2);
+  });
+  // frogman above the surface: hooded head, mask, snorkel, shoulders (faces left)
+  tex('frogman', 16, 14, (c) => {
+    roundRect(c, 1.5, 8.5, 13, 5, 2);
+    inked(c, '#1d2229', 0.5);
+    c.beginPath();
+    c.arc(8, 6, 4.4, 0, Math.PI * 2);
+    inked(c, '#2a3036', 0.5);
+    roundRect(c, 3, 4.4, 5.4, 2.6, 1);
+    inked(c, '#20252b', 0.4);
+    c.fillStyle = '#ff9a3c';
+    c.fillRect(3.6, 4.9, 4.2, 1.4);
+    roundRect(c, 10.6, 0.6, 1.4, 6, 0.6);
+    inked(c, nullRed, 0.35);
+  });
+  // Lock Gate: a fortified sea-lock wall (60×180), cannon housing, core and its shield
+  tex('gate-wall', 60, 180, (c) => {
+    roundRect(c, 6, 0, 54, 180, 3);
+    inked(c, '#3a4048', 0.7);
+    c.fillStyle = 'rgba(0,0,0,0.25)';
+    c.fillRect(34, 0, 26, 180);
+    c.strokeStyle = '#2a2f36';
+    c.lineWidth = 0.6;
+    for (let y = 12; y < 180; y += 22) {
+      c.beginPath();
+      c.moveTo(6, y);
+      c.lineTo(60, y);
+      c.stroke();
+    }
+    c.fillStyle = '#20252b';
+    for (let y = 6; y < 180; y += 11) for (const x of [9, 30, 56]) c.fillRect(x, y, 1.2, 1.2);
+    c.fillStyle = '#ffd23f';
+    for (let y = 2; y < 180; y += 8) c.fillRect(6, y, 3, 4);
+    c.fillStyle = nullRed;
+    c.fillRect(14, 30, 4, 120);
+    roundRect(c, 0, 18, 10, 30, 2);
+    inked(c, '#4a525c', 0.6);
+    roundRect(c, 0, 72, 10, 30, 2);
+    inked(c, '#4a525c', 0.6);
+    roundRect(c, 0, 132, 12, 44, 2);
+    inked(c, '#4a525c', 0.6);
+  });
+  tex('gate-cannon', 18, 16, (c) => {
+    roundRect(c, 4, 1, 13, 14, 3);
+    inked(c, '#565e68', 0.6);
+    rimTop(c, 6, 15, 2, steelHi, 0.6);
+    c.beginPath();
+    c.arc(9, 8, 2.4, 0, Math.PI * 2);
+    inked(c, '#ff9a3c', 0.4);
+  });
+  tex('gate-core', 18, 18, (c) => {
+    const pts: [number, number][] = [];
+    for (let i = 0; i < 6; i++)
+      pts.push([9 + Math.cos(i * 1.047) * 7.6, 9 + Math.sin(i * 1.047) * 7.6]);
+    poly(c, pts);
+    inked(c, '#2a2f36', 0.6);
+    const g = c.createRadialGradient(9, 9, 0, 9, 9, 6);
+    g.addColorStop(0, '#fff3c4');
+    g.addColorStop(0.4, '#ff9a3c');
+    g.addColorStop(1, '#a8321f');
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(9, 9, 5, 0, Math.PI * 2);
+    c.fill();
+  });
+  tex('gate-shield', 28, 28, (c) => {
+    const pts: [number, number][] = [];
+    for (let i = 0; i < 6; i++)
+      pts.push([14 + Math.cos(i * 1.047) * 12.5, 14 + Math.sin(i * 1.047) * 12.5]);
+    poly(c, pts);
+    c.fillStyle = 'rgba(120,200,255,0.18)';
+    c.fill();
+    c.strokeStyle = 'rgba(160,230,255,0.9)';
+    c.lineWidth = 0.9;
+    c.stroke();
   });
 
   generateHelicopter(scene);

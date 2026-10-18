@@ -94,7 +94,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [x] COMBAT-03 Health, armour, damage, death (G3) (done 2026-10-15)
 - [x] COMBAT-04 Hit-stop, hit flash, screen shake (toggleable) (G3) (done 2026-10-15)
 - [ ] COMBAT-05 Sidearms: Kestrel SMG, Bulwark LMG (overheat), Needle DMR (pierce) (G5) — started: weapons with magazines, reload, recoil and a P9 sidearm each (CHAR-03); LMG overheat to do
-- [ ] COMBAT-06 Pickup crates + Fan, Arc Lance, Hornet (G5)
+- [x] COMBAT-06 Pickup crates + Fan, Hornet, Rail (Rail in place of Arc Lance for now) — dropped by supply drones, override the primary while ammo lasts, lost when that operator falls; `systems/pickups.ts` + tests (owner request: Contra set) (done 2026-10-18)
 - [ ] COMBAT-07 Loadout slot + Breacher shotgun (G5)
 - [ ] COMBAT-08 Mei-Lin Mark (weak-point bonus damage) (G5)
 - [ ] COMBAT-09 Weapon data in JSON for tuning (G5) — started: all weapon numbers live in src/data/weapons.ts
@@ -146,11 +146,16 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [ ] ENEMY-05 Skitter swarm (groups of 6) (G5)
 - [ ] ENEMY-06 Gantry sniper (laser line, then shot) (G5)
 - [ ] ENEMY-07 Jetpack lancer (G6)
-- [ ] ENEMY-08 Spawner / wave trigger system (G5) — started: arena trigger that locks the camera and drops 4 riflemen
+- [ ] ENEMY-08 Spawner / wave trigger system (G5) — started: arena trigger that locks the camera and drops 4 riflemen; runner zones keep runners coming from the screen edges
+- [x] ENEMY-09 Runner: sprints at the player, hops gaps, one hit; runner zones in stage data (owner request: Contra set) (done 2026-10-18)
+- [x] ENEMY-10 Turrets: wall-mounted and deck-hatch (rises when you come close, invulnerable while closed), 45° stepping aim, telegraph line before each shot (owner request: Contra set) (done 2026-10-18)
+- [x] ENEMY-11 Frogman: surfaces to lob a grenade, untouchable while under (owner request: Contra set) (done 2026-10-18)
+- [x] ENEMY-12 Supply drone: flies in on cue, drops a pickup crate when shot (owner request: Contra set) (done 2026-10-18)
 
 ## BOSS — Minibosses and bosses
 
-- [ ] BOSS-01 Boss framework: phases, health bar, patterns (G5)
+- [ ] BOSS-01 Boss framework: phases, health bar, patterns (G5) — started: HUD boss bar (shielded / exposed), arena lock, phase gate (cannons first, then core)
+- [x] BOSS-07 Lock Gate (stage 1 end boss): two cannons with 3-shot volleys, a core shielded until both cannons fall, runners released from its base; defeat sinks the gate and opens the way to the goal (owner request: Contra set) (done 2026-10-18)
 - [ ] BOSS-02 Harbour Mule miniboss (G5)
 - [ ] BOSS-03 Dredger: phase 1 dredge-arm sweeps (G5)
 - [ ] BOSS-04 Dredger: phase 2 mortar barrage (G5)
@@ -166,6 +171,7 @@ Keep this file in the repo root so Claude Code can read and update it.
 - [ ] LEVEL-05 Boss stage (G5)
 - [ ] LEVEL-06 Rising-tide hazard (G5)
 - [ ] LEVEL-07 Moving crane platforms (G5)
+- [x] LEVEL-12 Rigged gangway: catwalk over a channel that blows up segment by segment once stepped on; stage 1 extended with section E (gangway channel, frogman, Lock Gate arena) (owner request: Contra set) (done 2026-10-18)
 - [ ] LEVEL-08 Optional dock-crew rescues + secrets (G5) — started: grate-hidden supply cache in the basin
 - [ ] LEVEL-09 Region 2 Erg Saar stages 1–3 (G6)
 - [ ] LEVEL-10 Region 3 Kessler Works (G6–G7)

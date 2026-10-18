@@ -16,7 +16,17 @@ import type { WeaponId } from '../data/weapons';
 export const PART_RES = 6;
 
 export type RigId =
-  'kemi' | 'rurik' | 'meilin' | 'tari' | 'tomas' | 'farida' | 'sione' | 'kai7' | 'contractor';
+  | 'kemi'
+  | 'rurik'
+  | 'meilin'
+  | 'tari'
+  | 'tomas'
+  | 'farida'
+  | 'sione'
+  | 'kai7'
+  | 'contractor'
+  /** Contractor runner: lighter kit, charges the player. */
+  | 'runner';
 
 /** Colours and build of one character. */
 export interface Look {
@@ -169,6 +179,22 @@ export const LOOKS: Record<RigId, Look> = {
     accent: '#7ff3ff',
     sleeve: 'armour',
     build: 1.14,
+  },
+  runner: {
+    skin: '#5e636c',
+    skinShade: '#3f434b',
+    hair: '#2a2d33',
+    top: '#7a2f26',
+    topShade: '#521d17',
+    trim: '#2d3036',
+    pants: '#3a3d44',
+    pantsShade: '#26282d',
+    boot: '#18191c',
+    bootTrim: '#e0452f',
+    glove: '#2a2723',
+    accent: '#ff9a3c',
+    sleeve: 'top',
+    build: 0.92,
   },
   contractor: {
     skin: '#5e636c',

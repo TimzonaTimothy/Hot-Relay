@@ -24,6 +24,8 @@ export interface MemberState {
   oxygenMs: number;
   /** Time spent without air, towards the next drowning hit. */
   drownMs: number;
+  /** Field pickup carried by this operator (lost when they go down). */
+  pickup: { kind: string; ammo: number; full: number } | null;
 }
 
 export interface DamageResult {
@@ -122,6 +124,7 @@ export class Squad {
   activeDown(): DownOutcome {
     const m = this.active;
     m.hp = 0;
+    m.pickup = null; // field pickups are lost with the operator
     m.armour = 0;
     m.down = true;
     this.downs++;
@@ -245,5 +248,6 @@ function fresh(def: OperatorDef): MemberState {
     arsenal: new Arsenal(def.weapons),
     oxygenMs: def.swim.oxygenMs,
     drownMs: 0,
+    pickup: null,
   };
 }

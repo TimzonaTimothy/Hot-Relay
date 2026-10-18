@@ -15,6 +15,8 @@ export class Bullet extends Phaser.Physics.Arcade.Image {
   wet = false;
   /** Keeps full speed in water (speargun bolts). */
   waterproof = false;
+  /** Steers towards the nearest enemy (Hornet pickup). */
+  homing = false;
   /** Enemies already hit by this bullet, so a piercing shot never double-hits. */
   readonly hitTargets = new Set<object>();
 }
@@ -34,6 +36,7 @@ export interface FireOptions {
   /** Fired from underwater (already slowed by the weapon rules). */
   wet?: boolean;
   waterproof?: boolean;
+  homing?: boolean;
 }
 
 export class BulletPool {
@@ -63,6 +66,7 @@ export class BulletPool {
     b.lifeMs = o.lifeMs;
     b.wet = o.wet ?? false;
     b.waterproof = o.waterproof ?? false;
+    b.homing = o.homing ?? false;
     b.hitTargets.clear();
     b.setRotation(Math.atan2(o.dirY, o.dirX));
     b.setScale(o.length ? o.length / b.width : 1, 1);

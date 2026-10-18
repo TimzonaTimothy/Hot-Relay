@@ -28,6 +28,9 @@ import { Enemy, type EnemyContext, type EnemyVisualWorld } from '../entities/Ene
 import { Cache, EelDrone, Grate, Mine } from '../entities/Hazards';
 import { Bullet, BulletPool } from '../entities/BulletPool';
 import { Grenade, GrenadePool, Sentry } from '../entities/Gadgets';
+import { Frogman, GateCore, Runner, SupplyDrone, Turret } from '../entities/Assault';
+import { grantPickup, pelletAngles, PICKUPS, spendPickup, steer } from '../systems/pickups';
+import type { BridgeDef, DroneDef, PickupKind, RunnerZone } from '../data/stages/types';
 import { Rig } from '../entities/Rig';
 import { FixedStep } from '../systems/FixedStep';
 import { Squad, type SquadMode } from '../systems/Squad';
@@ -173,6 +176,32 @@ export class StageScene extends Phaser.Scene {
   private grenades!: GrenadePool;
   /** KAI-7: armour hits absorbed towards the next counter-blast. */
   private absorbCharge = 0;
+  // Contra-inspired set
+  private runnerZones: { def: RunnerZone; timerMs: number; alive: Set<Enemy> }[] = [];
+  private droneDefs: { def: DroneDef; spawned: boolean }[] = [];
+  private crates!: Phaser.Physics.Arcade.Group;
+  private bridges: {
+    def: BridgeDef;
+    segs: { rect: Phaser.GameObjects.Rectangle; img: Phaser.GameObjects.Image }[];
+    armed: boolean;
+    timerMs: number;
+    next: number;
+  }[] = [];
+  private pickupCdMs = 0;
+  private boss: {
+    cannons: Turret[];
+    core: GateCore;
+    wall: Phaser.GameObjects.Rectangle;
+    art: Phaser.GameObjects.Image;
+    started: boolean;
+    exposed: boolean;
+    defeated: boolean;
+    leftWall: Phaser.GameObjects.Rectangle | null;
+    /** Keeps the player a step back from the gate (player only), so shots meet the core. */
+    barrier: Phaser.GameObjects.Rectangle;
+    runnerMs: number;
+    runners: Set<Enemy>;
+  } | null = null;
 
   constructor() {
     super(SCENES.stage);
@@ -200,6 +229,11 @@ export class StageScene extends Phaser.Scene {
     this.firstFightMs = null;
     this.sentry = null;
     this.absorbCharge = 0;
+    this.runnerZones = [];
+    this.droneDefs = [];
+    this.bridges = [];
+    this.pickupCdMs = 0;
+    this.boss = null;
     this.section = 0;
     this.downsBySection = [0];
     this.inputMs = {};
@@ -269,6 +303,8 @@ export class StageScene extends Phaser.Scene {
     this.pBullets = new BulletPool(this, 'bullet-p', 90);
     this.eBullets = new BulletPool(this, 'bullet-e', 120);
     this.grenades = new GrenadePool(this);
+    this.crates = this.physics.add.group({ allowGravity: true });
+    this.buildAssault();
     this.telegraph = this.add.graphics().setDepth(DEPTH.fx);
     this.sparks = this.add
       .particles(0, 0, 'px', {
@@ -528,7 +564,18 @@ export class StageScene extends Phaser.Scene {
     });
     this.physics.add.overlap(this.grenades.group, this.enemies, (a, b) => {
       const gr = grenadeOf(a, b);
-      if (gr.armMs <= 0) this.detonate(gr);
+      if (gr.armMs <= 0 && !gr.hostile) this.detonate(gr);
+    });
+    this.physics.add.overlap(p, this.grenades.group, (a, b) => {
+      const gr = grenadeOf(a, b);
+      if (gr.hostile && gr.armMs <= 0) this.detonate(gr);
+    });
+    // pickup crates land on decks and are collected by touch
+    this.physics.add.collider(this.crates, this.solids);
+    this.physics.add.collider(this.crates, this.oneways);
+    this.physics.add.overlap(p, this.crates, (a, b) => {
+      const crate = (a === p ? b : a) as Phaser.Physics.Arcade.Image;
+      this.collectCrate(crate);
     });
     this.physics.add.overlap(this.pBullets.group, this.solids, (a, b) =>
       this.killBullet(this.pBullets, bulletOf(a, b)),
@@ -741,6 +788,7 @@ export class StageScene extends Phaser.Scene {
     this.breathe(dt);
     this.stepEntryAttacks(dt);
     this.stepGadgets(dt);
+    this.stepAssault(dt);
     if (fireHeld && p.slideMs <= 0 && !p.climbing) this.tryFire(inp);
     if (p.arsenal?.tick(dt, fireHeld)) sfx.reloadDone();
 
@@ -843,6 +891,11 @@ export class StageScene extends Phaser.Scene {
     const p = this.player;
     const a = p.arsenal;
     if (!a) return;
+    // a field pickup overrides the primary while it has ammo (not underwater)
+    if (this.squad.active.pickup && !p.submerged) {
+      this.firePickup();
+      return;
+    }
     const check = a.canFire(p.submerged);
     if (check === 'blockedUnderwater') {
       if (inp.firePressed) sfx.dryFire();
@@ -971,7 +1024,7 @@ export class StageScene extends Phaser.Scene {
     if (this.settings.flashing) this.cameras.main.flash(70, 255, 200, 150);
     const p = this.player;
     if (!friendly && Math.hypot(p.x - x, p.y - y) < radius + 6) {
-      p.invulnMs = 0; // a blast always lands
+      if (source) p.invulnMs = 0; // a mine blast always lands; thrown grenades respect i-frames
       this.hurtPlayer(damage, x);
     }
     for (const e of this.enemies) {
@@ -995,6 +1048,15 @@ export class StageScene extends Phaser.Scene {
       fireEnemyBullet: (x, y, dirX, dirY, speed) =>
         this.eBullets.fire({ x, y, dirX, dirY, speed, damage: 1, pierce: 1, lifeMs: 2400 }),
       explode: (x, y, radius, damage, source) => this.explode(x, y, radius, damage, source),
+      lobGrenade: (x, y, vx, vy) =>
+        this.grenades.lob(
+          x,
+          y,
+          vx,
+          vy,
+          { radius: 18, damage: 1, gravity: 520, armMs: 0, fuseMs: 2600 },
+          true,
+        ),
       onEngage: () => {
         if (this.firstFightLogged) return;
         this.firstFightLogged = true;
@@ -1196,9 +1258,9 @@ export class StageScene extends Phaser.Scene {
 
   private detonate(g: Grenade): void {
     if (!g.active) return;
-    const { x, y, radius, damage } = g;
+    const { x, y, radius, damage, hostile } = g;
     this.grenades.kill(g);
-    this.explode(x, y, radius, damage, null, true);
+    this.explode(x, y, radius, damage, null, !hostile);
   }
 
   /** KAI-7 turns absorbed armour hits into a ring of bolts. */
@@ -1642,6 +1704,330 @@ export class StageScene extends Phaser.Scene {
     return id;
   }
 
+  // ---------------------------------------------------------------- Contra-inspired set
+
+  /** Turrets, frogmen, runner zones, drones, the rigged gangway and the Lock Gate. */
+  private buildAssault(): void {
+    const d = this.def;
+    for (const t of d.turrets ?? []) {
+      const opts =
+        t.mount === 'wall'
+          ? { mount: 'wall' as const, hp: 8, volley: 1, cooldownMs: 1300 }
+          : { mount: 'hatch' as const, hp: 6, volley: 1, cooldownMs: 1500 };
+      this.enemies.push(new Turret(this, t.x, t.y, opts));
+    }
+    for (const f of d.frogmen ?? []) {
+      const pool = d.water.find((v) => f.x > v.x && f.x < v.x + v.w);
+      if (pool) this.enemies.push(new Frogman(this, f.x, pool));
+    }
+    this.runnerZones = (d.runners ?? []).map((def) => ({ def, timerMs: 600, alive: new Set() }));
+    this.droneDefs = (d.drones ?? []).map((def) => ({ def, spawned: false }));
+    for (const b of d.bridges ?? []) {
+      const segs: { rect: Phaser.GameObjects.Rectangle; img: Phaser.GameObjects.Image }[] = [];
+      for (let x = b.x; x < b.to - 1; x += 24) {
+        const w = Math.min(24, b.to - x);
+        const rect = this.add.rectangle(x + w / 2, b.y + 3, w, 6, 0, 0).setVisible(false);
+        this.physics.add.existing(rect, true);
+        const body = rect.body as Phaser.Physics.Arcade.StaticBody;
+        body.checkCollision.down = false;
+        body.checkCollision.left = false;
+        body.checkCollision.right = false;
+        this.oneways.add(rect);
+        const img = this.add
+          .image(x, b.y - 4, 'bridge-seg')
+          .setOrigin(0, 0)
+          .setScale(1 / FX_RES)
+          .setDepth(DEPTH.level + 1);
+        segs.push({ rect, img });
+      }
+      this.bridges.push({ def: b, segs, armed: false, timerMs: 0, next: 0 });
+    }
+    const g = d.gate;
+    if (g) {
+      const top = GROUND_Y - 180;
+      const art = this.add
+        .image(g.x - 6, GROUND_Y, 'gate-wall')
+        .setOrigin(0, 1)
+        .setScale(1 / FX_RES)
+        .setDepth(DEPTH.level + 2);
+      const wall = this.add.rectangle(g.x + 27, top + 90, 54, 180, 0, 0).setVisible(false);
+      this.physics.add.existing(wall, true);
+      this.solids.add(wall);
+      const cannons = [
+        // within reach of a diagonal shot from mid-arena, and of a jump-and-fire up close
+        new Turret(this, g.x - 2, GROUND_Y - 104, {
+          mount: 'gate',
+          hp: 12,
+          volley: 3,
+          cooldownMs: 1900,
+        }),
+        new Turret(this, g.x - 2, GROUND_Y - 62, {
+          mount: 'gate',
+          hp: 12,
+          volley: 3,
+          cooldownMs: 2300,
+        }),
+      ];
+      const core = new GateCore(this, g.x - 1, GROUND_Y - 22);
+      this.enemies.push(...cannons, core);
+      const barrier = this.add.rectangle(g.x - 15, top + 90, 30, 180, 0, 0).setVisible(false);
+      this.physics.add.existing(barrier, true);
+      this.physics.add.collider(this.player, barrier);
+      this.boss = {
+        cannons,
+        core,
+        wall,
+        art,
+        started: false,
+        exposed: false,
+        defeated: false,
+        leftWall: null,
+        barrier,
+        runnerMs: 2500,
+        runners: new Set(),
+      };
+    }
+    this.events.on('drone-down', (x: number, y: number, kind: PickupKind) =>
+      this.dropCrate(x, y, kind),
+    );
+    this.events.on('big-boom', (x: number, y: number) => this.boomFx(x, y, 1));
+  }
+
+  /** Visual and sound of an explosion only (no damage). */
+  private boomFx(x: number, y: number, size: number): void {
+    this.debris.explode(Math.round(12 * size), x, y);
+    this.fx.dust(x, y, Math.round(8 * size), 0xffb070);
+    sfx.explosion();
+    this.shake({
+      durationMs: TUNING.shakeKill.durationMs,
+      intensity: TUNING.shakeKill.intensity * size,
+    });
+  }
+
+  private spawnRunner(x: number, dir: 1 | -1): Runner | null {
+    const view = this.cameras.main.worldView;
+    const feet = groundBelow(this.def.platforms, x, view.y, 400);
+    if (feet === null || pointInWater(x, feet - 2, this.def.water)) return null;
+    const r = new Runner(this, x, feet, dir, this.def.platforms, this.def.height);
+    this.enemies.push(r);
+    return r;
+  }
+
+  private stepAssault(dt: number): void {
+    const p = this.player;
+    const view = this.cameras.main.worldView;
+    this.pickupCdMs = Math.max(0, this.pickupCdMs - dt);
+
+    // runners keep coming while the player is inside a zone
+    for (const z of this.runnerZones) {
+      for (const e of z.alive) if (e.dead) z.alive.delete(e);
+      if (p.x < z.def.fromX || p.x > z.def.toX || this.status !== 'playing') continue;
+      z.timerMs -= dt;
+      if (z.timerMs > 0 || z.alive.size >= z.def.max) continue;
+      const behind = z.def.sides === 'both' && Math.random() < 0.25;
+      const r = behind ? this.spawnRunner(view.x - 8, 1) : this.spawnRunner(view.right + 8, -1);
+      z.timerMs = r ? z.def.everyMs * (0.7 + Math.random() * 0.6) : 400;
+      if (r) z.alive.add(r);
+    }
+
+    // supply drones fly in once their trigger is passed
+    for (const dd of this.droneDefs) {
+      if (dd.spawned || p.x < dd.def.triggerX) continue;
+      dd.spawned = true;
+      this.enemies.push(new SupplyDrone(this, view.right + 16, dd.def.y, dd.def.pickup));
+    }
+
+    // crates blink out after a while
+    for (const c of this.crates.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (!c.active) continue;
+      const left = (c.getData('ttl') as number) - dt;
+      c.setData('ttl', left);
+      c.setAlpha(left < 3000 && Math.floor(left / 120) % 2 === 0 ? 0.3 : 1);
+      if (left <= 0) c.destroy();
+    }
+
+    // Hornet rounds home in on the nearest enemy
+    for (const b of this.pBullets.group.getChildren() as Bullet[]) {
+      if (!b.active || !b.homing) continue;
+      let best: Enemy | null = null;
+      let bestD = 220;
+      for (const e of this.enemies) {
+        if (e.dead || !e.active || (e instanceof Turret && e.hidden)) continue;
+        const dd = Math.hypot(e.x - b.x, e.y - b.y);
+        if (dd < bestD) {
+          bestD = dd;
+          best = e;
+        }
+      }
+      if (!best) continue;
+      const body = b.body as Phaser.Physics.Arcade.Body;
+      const speed = Math.hypot(body.velocity.x, body.velocity.y) || 1;
+      const h = steer(
+        Math.atan2(body.velocity.y, body.velocity.x),
+        Math.atan2(best.y - b.y, best.x - b.x),
+        (dt / 1000) * 5,
+      );
+      body.setVelocity(Math.cos(h) * speed, Math.sin(h) * speed);
+      b.setRotation(h);
+    }
+
+    // the rigged gangway: stepping on it starts a chain of charges from the near end
+    for (const br of this.bridges) {
+      if (!br.armed) {
+        const on =
+          p.grounded && p.x > br.def.x && p.x < br.def.to && Math.abs(p.feetY - br.def.y) < 3;
+        if (on) {
+          br.armed = true;
+          br.timerMs = 220;
+          this.game.events.emit(HUD_EVENTS.callout, 'Rigged gangway!', COLORS.danger);
+          sfx.telegraph();
+        }
+        continue;
+      }
+      if (br.next >= br.segs.length) continue;
+      br.timerMs -= dt;
+      if (br.timerMs > 0) continue;
+      const seg = br.segs[br.next]!;
+      this.oneways.remove(seg.rect, true, true);
+      this.boomFx(seg.img.x + 3, br.def.y + 2, 0.7);
+      this.fx.splash(seg.img.x + 3, SURFACE_Y, 0.6);
+      seg.img.destroy();
+      br.next++;
+      br.timerMs = 300;
+    }
+
+    this.stepBoss(dt);
+  }
+
+  private dropCrate(x: number, y: number, kind: PickupKind): void {
+    const c = this.crates.create(x, y, `crate-${kind}`) as Phaser.Physics.Arcade.Image;
+    c.setScale(1 / FX_RES).setDepth(DEPTH.pickups);
+    c.setData('kind', kind).setData('ttl', 14000);
+    const body = c.body as Phaser.Physics.Arcade.Body;
+    body.setSize(10 * FX_RES, 10 * FX_RES).setOffset(1 * FX_RES, 1 * FX_RES);
+    body.setVelocity(0, -80);
+    body.setMaxVelocityY(220);
+    body.setDragX(200);
+  }
+
+  private collectCrate(c: Phaser.Physics.Arcade.Image): void {
+    if (!c.active || this.status !== 'playing') return;
+    const kind = c.getData('kind') as PickupKind;
+    c.destroy();
+    grantPickup(this.squad.active, kind);
+    sfx.pickup();
+    this.game.events.emit(HUD_EVENTS.callout, PICKUPS[kind].name, PICKUPS[kind].color);
+    telemetry.log('pickup', { kind, t: Math.round(this.timeMs) });
+  }
+
+  private firePickup(): void {
+    if (this.pickupCdMs > 0) return;
+    const p = this.player;
+    const spec = spendPickup(this.squad.active);
+    if (!spec) return;
+    this.pickupCdMs = 1000 / spec.rate;
+    const dir = this.aimDirection();
+    if (dir !== p.aim.dir) p.aim = { ...p.aim, dir };
+    p.unfurl();
+    const m = p.muzzle(dir);
+    for (const a of pelletAngles(Math.atan2(dir.y, dir.x), spec)) {
+      this.pBullets.fire({
+        x: m.x,
+        y: m.y,
+        dirX: Math.cos(a),
+        dirY: Math.sin(a),
+        speed: spec.speed,
+        damage: spec.damage,
+        pierce: spec.pierce,
+        lifeMs: TUNING.bulletLifeMs * (spec.homing ? 1.6 : 1),
+        length: spec.length,
+        tint: spec.tint,
+        homing: spec.homing,
+      });
+    }
+    p.recoil(spec.kind === 'rail' ? 2.6 : 1.2);
+    this.fx.muzzle(
+      m.x,
+      m.y,
+      Math.atan2(dir.y, dir.x),
+      spec.kind === 'rail' ? 1.6 : 1,
+      false,
+      spec.tint,
+    );
+    sfx.shoot(spec.kind === 'rail' ? 1700 : spec.kind === 'hornet' ? 520 : 760);
+  }
+
+  /** The Lock Gate: lock the camera, guns first, then the core; defeat opens the way. */
+  private stepBoss(dt: number): void {
+    const b = this.boss;
+    const g = this.def.gate;
+    if (!b || !g || b.defeated) return;
+    const p = this.player;
+    if (!b.started) {
+      if (p.x < g.triggerX) return;
+      b.started = true;
+      const wall = this.add.rectangle(
+        g.arenaLeft - 4,
+        this.def.height / 2,
+        8,
+        this.def.height * 2,
+        0,
+        0,
+      );
+      this.physics.add.existing(wall, true);
+      this.solids.add(wall);
+      b.leftWall = wall;
+      this.camRig.setBounds(g.arenaLeft, 0, g.x + 64 - g.arenaLeft, this.def.height);
+      this.game.events.emit(HUD_EVENTS.callout, 'Lock Gate · take out the cannons', COLORS.danger);
+      telemetry.log('boss_start', { t: Math.round(this.timeMs) });
+    }
+    // the gate keeps releasing runners from its base
+    for (const e of b.runners) if (e.dead) b.runners.delete(e);
+    b.runnerMs -= dt;
+    if (b.runnerMs <= 0 && b.runners.size < 2 && !b.core.dead) {
+      const r = this.spawnRunner(g.x - 8, -1);
+      if (r) b.runners.add(r);
+      b.runnerMs = 3400 + Math.random() * 1200;
+    }
+    if (!b.exposed && b.cannons.every((c) => c.dead)) {
+      b.exposed = true;
+      b.core.dropShield();
+      this.game.events.emit(HUD_EVENTS.callout, 'Core exposed!', COLORS.uiAccent);
+    }
+    // only a core shot to pieces opens the gate (not a despawn)
+    if (b.core.dead && b.core.hp <= 0) this.defeatBoss();
+  }
+
+  private defeatBoss(): void {
+    const b = this.boss;
+    const g = this.def.gate;
+    if (!b || !g || b.defeated) return;
+    b.defeated = true;
+    for (const e of b.runners) if (!e.dead) e.despawn();
+    // a chain of blasts up the gate, then it sinks and the way opens
+    for (let i = 0; i < 7; i++) {
+      this.time.delayedCall(i * 160, () =>
+        this.boomFx(g.x + 10 + Math.random() * 40, GROUND_Y - 20 - Math.random() * 150, 1.2),
+      );
+    }
+    this.time.delayedCall(1100, () => {
+      this.solids.remove(b.wall, true, true);
+      b.barrier.destroy();
+      this.tweens.add({
+        targets: b.art,
+        y: b.art.y + 190,
+        alpha: 0.2,
+        duration: 1400,
+        ease: 'Quad.easeIn',
+      });
+      if (b.leftWall) this.solids.remove(b.leftWall, true, true);
+      b.leftWall = null;
+      this.camRig.setBounds(0, 0, this.def.width, this.def.height);
+      this.game.events.emit(HUD_EVENTS.callout, 'Gate down · move out', COLORS.checkpointOn);
+    });
+    telemetry.log('boss_clear', { t: Math.round(this.timeMs) });
+  }
+
   // ---------------------------------------------------------------- feedback, pause, HUD
 
   private hitStop(ms: number): void {
@@ -1692,18 +2078,39 @@ export class StageScene extends Phaser.Scene {
     hud.showRetry = this.status === 'squadDown' && this.time.now >= this.retryReadyAt;
     hud.fps = this.settings.showFps || FLAGS.debug ? this.fps.summary() : null;
     const a = p.arsenal;
-    hud.weapon = a
+    const pk = s.active.pickup;
+    hud.weapon = pk
       ? {
-          name: a.current.name,
-          short: a.current.short,
-          mag: a.mag,
-          magSize: a.current.magSize,
-          reload: a.reloadProgress,
-          blocked: p.submerged && a.current.underwater === 'none',
-          other: a.ids.length > 1 ? (a.ids[(a.index + 1) % a.ids.length] ?? '') : '',
+          name: PICKUPS[pk.kind as PickupKind].name,
+          short: PICKUPS[pk.kind as PickupKind].short,
+          mag: pk.ammo,
+          magSize: pk.full,
+          reload: null,
+          blocked: p.submerged,
+          other: a ? (a.ids[a.index] ?? '') : '',
         }
-      : null;
+      : a
+        ? {
+            name: a.current.name,
+            short: a.current.short,
+            mag: a.mag,
+            magSize: a.current.magSize,
+            reload: a.reloadProgress,
+            blocked: p.submerged && a.current.underwater === 'none',
+            other: a.ids.length > 1 ? (a.ids[(a.index + 1) % a.ids.length] ?? '') : '',
+          }
+        : null;
     hud.oxygen = s.oxygenFrac;
+    const b = this.boss;
+    if (b && b.started && !b.defeated) {
+      // cannons count for the first half of the bar, the core for the second
+      const cannons =
+        b.cannons.reduce((n, c) => n + Math.max(0, c.hp) / c.maxHp, 0) / b.cannons.length;
+      const core = Math.max(0, b.core.hp) / b.core.maxHp;
+      hud.boss = { name: 'LOCK GATE', frac: (cannons + core) / 2, shielded: b.core.shielded };
+    } else {
+      hud.boss = null;
+    }
     hud.showOxygen = p.submerged || s.oxygenFrac < 0.999;
     hud.secrets = this.secrets;
     const c = this.cinematic;
@@ -1743,6 +2150,18 @@ export class StageScene extends Phaser.Scene {
       bullets: this.pBullets.countActive() + this.eBullets.countActive(),
       timeMs: Math.round(this.timeMs),
       zoom: this.settings.viewZoom,
+      pickup: this.squad.active.pickup?.kind ?? null,
+      pickupAmmo: this.squad.active.pickup?.ammo ?? 0,
+      boss: this.boss
+        ? {
+            started: this.boss.started,
+            exposed: this.boss.exposed,
+            defeated: this.boss.defeated,
+            cannonsAlive: this.boss.cannons.filter((c) => !c.dead).length,
+            coreHp: this.boss.core.hp,
+          }
+        : null,
+      runners: this.enemies.filter((e) => e instanceof Runner && !e.dead).length,
       ground: p.groundKind,
       grounded: p.grounded,
       lastSafe: { x: Math.round(p.lastSafe.x), y: Math.round(p.lastSafe.y) },
@@ -1788,11 +2207,30 @@ export class StageScene extends Phaser.Scene {
       setInvulnerable: (ms: number) => {
         this.player.invulnMs = ms;
       },
+      /** Destroy the Lock Gate's cannons and core at once. */
+      winBoss: () => {
+        const b = this.boss;
+        if (!b) return;
+        b.cannons.forEach((c) => c.dead || c.hit(999));
+        b.core.dropShield();
+        b.core.hit(999);
+      },
+      /** Send a supply drone in now, carrying `kind`. */
+      spawnDrone: (kind: PickupKind) => {
+        const v = this.cameras.main.worldView;
+        this.enemies.push(new SupplyDrone(this, v.right - 40, v.y + 60, kind));
+      },
       /** Fire an enemy bullet from (x, y) along (dirX, dirY), as a rifleman would. */
       enemyShot: (x: number, y: number, dirX: number, dirY: number) => {
         this.eBullets.fire({ x, y, dirX, dirY, speed: 220, damage: 1, pierce: 1, lifeMs: 2400 });
       },
-      clearEnemies: () => this.enemies.forEach((e) => e.despawn()),
+      // the Lock Gate's cannons and core are scenery-sized and stay (use winBoss for those)
+      clearEnemies: () =>
+        this.enemies.forEach((e) => {
+          if (this.boss && (this.boss.cannons.includes(e as Turret) || e === this.boss.core))
+            return;
+          e.despawn();
+        }),
       scene: this,
     };
   }

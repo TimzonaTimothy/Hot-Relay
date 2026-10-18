@@ -54,6 +54,55 @@ export interface GrateDef {
   h: number;
 }
 
+/** A stretch where runners keep sprinting in from the screen edges (Contra-style pressure). */
+export interface RunnerZone {
+  fromX: number;
+  toX: number;
+  /** Average gap between runners. */
+  everyMs: number;
+  /** Most runners alive at once from this zone. */
+  max: number;
+  /** 'ahead' = only from the screen edge in front; 'both' also from behind now and then. */
+  sides: 'ahead' | 'both';
+}
+
+/** Mounted gun: on a wall / container side, or hidden in a deck hatch until you are close. */
+export interface TurretDef {
+  x: number;
+  /** Pivot height (wall) or deck level (hatch). */
+  y: number;
+  mount: 'wall' | 'hatch';
+}
+
+/** A supply drone crosses the screen when the player passes triggerX; shoot it for a pickup. */
+export interface DroneDef {
+  triggerX: number;
+  y: number;
+  pickup: PickupKind;
+}
+
+export type PickupKind = 'fan' | 'hornet' | 'rail';
+
+/** Rigged gangway: oneway catwalk segments that blow up in turn once stepped on. */
+export interface BridgeDef {
+  x: number;
+  to: number;
+  y: number;
+}
+
+/** Diver that surfaces in a water volume to lob grenades. */
+export interface FrogmanDef {
+  x: number;
+}
+
+/** Stage boss: the Lock Gate (two cannons guard a shielded core). */
+export interface GateDef {
+  /** Face of the wall; the player is kept left of it until the core dies. */
+  x: number;
+  triggerX: number;
+  arenaLeft: number;
+}
+
 export interface StageDef {
   id: string;
   name: string;
@@ -77,4 +126,11 @@ export interface StageDef {
   insertion?: InsertionDef;
   /** Grass tufts that sway (and bend in rotor wash), as x positions on the ground. */
   tufts: { x: number; y: number }[];
+  // Contra-inspired set (all optional so other stages and the stress scene need none)
+  runners?: RunnerZone[];
+  turrets?: TurretDef[];
+  drones?: DroneDef[];
+  bridges?: BridgeDef[];
+  frogmen?: FrogmanDef[];
+  gate?: GateDef;
 }

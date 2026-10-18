@@ -40,7 +40,12 @@ Reload and recoil are layered on the arm.
 | `fx-tuft`                                            | Grass tuft that bends in wind / rotor wash | 2–3 foliage variants                                       | P      |
 | `mine`, `mine-lamp`                                  | Tethered naval mine                        | Painted mine + lamp glow                                   | P      |
 | `sentry-base`, `sentry-gun`                          | Tomás's sentry (gun pivots on its left edge) | Painted tripod + turret head                             | P      |
-| `grenade`                                            | Farida's grenade                           | Painted grenade, 2-frame spin                              | P      |
+| `grenade`                                            | Farida's grenade (tinted red when a frogman throws it) | Painted grenade, 2-frame spin                  | P      |
+| `turret-mount`, `hatch-frame`, `hatch-lid`, `turret-head`, `turret-barrel` | Wall and hatch turrets (barrel pivots on its left edge) | Painted turret set, hatch opening frames | P |
+| `drone`, `crate-fan`, `crate-hornet`, `crate-rail`   | Supply drone and pickup crates             | Painted drone (rotor blur frames), crates with icons       | P      |
+| `bridge-seg`                                         | Rigged gangway segment (24 world px)       | Painted catwalk tile + broken-end pieces                   | P      |
+| `frogman`                                            | Frogman above the surface                  | Painted diver, surface/throw/dive frames                   | P      |
+| `gate-wall`, `gate-cannon`, `gate-core`, `gate-shield` | Lock Gate boss                           | Painted gate, cannon housings, core, shield, destruction frames | P  |
 | `eel`, `eel-eye`                                     | Eel drone                                  | Painted drone, 4-frame swim cycle                          | P      |
 | `grate`, `cache`                                     | Breakable grate, supply cache              | Painted props + broken-grate debris                        | P      |
 | `heli-body`, `heli-rotor`, `heli-blade`, `heli-tail` | Insertion helicopter                       | Painted helicopter; door anchor at (58, 27) in 96×40 units | P      |

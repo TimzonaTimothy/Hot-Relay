@@ -216,6 +216,7 @@ try {
     let lastX = 0;
     let stuckSince = Date.now();
     let swam = false;
+    let bossShield = false;
     while (Date.now() - t0 < 420_000) {
       s = await state(page);
       if (!s) break;
@@ -251,6 +252,36 @@ try {
         await page.keyboard.up('KeyZ');
         continue;
       }
+      // Lock Gate: keep a band back from the wall so diagonal fire reaches the cannons,
+      // then shoot the exposed core level
+      if (s.boss && s.boss.started && !s.boss.defeated) {
+        // the smoke test checks the fight works end to end, not the bot's dodging:
+        // keep it alive through the boss (balance is for playtests)
+        if (!bossShield) {
+          bossShield = true;
+          await page.evaluate(() => window.__hotRelay.debug.setInvulnerable(600000));
+        }
+        const GATE_X = 4940;
+        const cycle = Math.floor((Date.now() - t0) / 450) % 2;
+        if (s.boss.cannonsAlive > 0) {
+          if (cycle === 0 && s.x < GATE_X - 70) {
+            await page.keyboard.up('ArrowLeft');
+            await page.keyboard.down('ArrowUp');
+            await page.keyboard.down('ArrowRight');
+          } else {
+            await page.keyboard.up('ArrowUp');
+            await page.keyboard.up('ArrowRight');
+            await page.keyboard.down('ArrowLeft');
+          }
+        } else {
+          await page.keyboard.up('ArrowUp');
+          await page.keyboard.up('ArrowLeft');
+          await page.keyboard.down('ArrowRight');
+        }
+        await sleep(25);
+        continue;
+      }
+      await page.keyboard.up('ArrowLeft');
       // inside the arena, past the crate: stop and fight until it is clear
       if (s.x > 3282 + D && s.x < 3600 + D && s.arenaLive > 0) {
         await page.keyboard.up('ArrowRight');
@@ -504,7 +535,9 @@ try {
     const dbg = (fn, ...args) =>
       page.evaluate(([f, a]) => window.__hotRelay.debug[f](...a), [fn, args]);
     await dbg('clearEnemies');
-    await dbg('teleport', 4120, 236);
+    await dbg('winBoss');
+    await sleep(1400); // the gate sinks
+    await dbg('teleport', 5010, 236);
     await page.keyboard.down('ArrowRight');
     await waitState(page, (x) => x.status === 'clear', 8000);
     await page.keyboard.up('ArrowRight');
@@ -633,6 +666,109 @@ try {
       `bolts ${r.bolts}, armour ${r.armour}`,
     );
     check('KAI-7 check ran without errors', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  // 3e. Contra-inspired set: drone pickup, rigged gangway, Lock Gate
+  {
+    const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
+    const { page, errs } = await stagePage(ctx, '?autostart=1&debug=1&squad=kemi,rurik,meilin');
+    const dbg = (fn, ...args) =>
+      page.evaluate(([f, a]) => window.__hotRelay.debug[f](...a), [fn, args]);
+    await dbg('setInvulnerable', 600000);
+    await dbg('clearEnemies');
+    // a drone dropped right overhead: shoot it, catch the crate, fire the pickup
+    await waitState(page, (x) => x.grounded, 3000);
+    const s0 = await state(page);
+    await page.evaluate(
+      ([x]) => {
+        const sc = window.__hotRelay.debug.scene;
+        sc.dropCrate(x + 30, 150, 'fan');
+      },
+      [s0.x],
+    );
+    await sleep(1300); // let the crate land before walking into it
+    await page.keyboard.down('ArrowRight');
+    await waitState(page, (x) => x.pickup === 'fan', 4000).catch(() => null);
+    await page.keyboard.up('ArrowRight');
+    let s = await state(page);
+    const before = s.pickupAmmo;
+    await page.keyboard.down('KeyX');
+    await sleep(700);
+    await page.keyboard.up('KeyX');
+    s = await state(page);
+    check(
+      'a drone crate gives the Fan pickup, which fires',
+      s.pickup === 'fan' && s.pickupAmmo < before,
+      `pickup ${s.pickup}, ammo ${before} → ${s.pickupAmmo}`,
+    );
+    await dbg('spawnDrone', 'rail');
+    await sleep(300);
+    // class names are minified in the build: a drone is the enemy that carries a pickup
+    const drones = await page.evaluate(
+      () =>
+        window.__hotRelay.debug.scene.enemies.filter((e) => typeof e.pickup === 'string' && !e.dead)
+          .length,
+    );
+    check('supply drones fly in on cue', drones >= 1, `${drones} drone(s)`);
+    // rigged gangway: step on it and it blows up segment by segment
+    await dbg('teleport', 4236, 236);
+    await sleep(400);
+    const segs = () =>
+      page.evaluate(
+        () =>
+          window.__hotRelay.debug.scene.bridges[0].segs.length -
+          window.__hotRelay.debug.scene.bridges[0].next,
+      );
+    const segsBefore = await segs();
+    await page.keyboard.down('ArrowRight');
+    await sleep(260);
+    await page.keyboard.up('ArrowRight');
+    await sleep(1600);
+    const segsAfter = await segs();
+    check(
+      'the rigged gangway blows up once stepped on',
+      segsAfter < segsBefore,
+      `segments ${segsBefore} → ${segsAfter}`,
+    );
+    // Lock Gate: entering the arena starts the fight; the core is shielded until the cannons die
+    await dbg('clearEnemies');
+    await dbg('teleport', 4520, 236);
+    await waitState(page, (x) => x.boss?.started, 4000).catch(() => null);
+    s = await state(page);
+    const shielded = await page.evaluate(
+      () =>
+        window.__hotRelay.debug.scene.boss.core.hit(5) === false &&
+        window.__hotRelay.debug.scene.boss.core.hp === 30,
+    );
+    check(
+      'the Lock Gate starts with a shielded core',
+      s.boss?.started && shielded,
+      JSON.stringify(s.boss),
+    );
+    await page.evaluate(() =>
+      window.__hotRelay.debug.scene.boss.cannons.forEach((c) => c.hit(999)),
+    );
+    await waitState(page, (x) => x.boss?.exposed, 3000).catch(() => null);
+    await page.keyboard.down('KeyX');
+    await page.keyboard.down('ArrowRight');
+    await waitState(page, (x) => x.boss?.defeated, 20000).catch(() => null);
+    s = await state(page);
+    check(
+      'cannons down expose the core; shooting it opens the gate',
+      !!s.boss?.defeated,
+      JSON.stringify(s.boss),
+    );
+    await waitState(page, (x) => x.status === 'clear', 8000).catch(() => null);
+    await page.keyboard.up('KeyX');
+    await page.keyboard.up('ArrowRight');
+    s = await state(page);
+    check(
+      'walking through the opened gate clears the stage',
+      s.status === 'clear',
+      `x ${s.x}, status ${s.status}`,
+    );
+    check('Contra-set checks ran without errors', errs.length === 0, errs.slice(0, 3).join(' | '));
     await ctx.close();
   }
 

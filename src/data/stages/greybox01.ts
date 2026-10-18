@@ -3,7 +3,11 @@
  * Teaching order: helicopter insertion → shoot level → shoot up-diagonal at a ledge →
  * hop the water channels → climb one-way platforms → raised perch → the flooded basin
  * (hop the pontoons or swim it; mines and an eel drone below; a grate hides a supply cache)
- * → gauntlet → ambush arena → goal.
+ * → gauntlet → ambush arena → the rigged gangway over a channel (a frogman below) → the Lock
+ * Gate boss → goal.
+ *
+ * Contra-inspired pressure throughout (original designs): runner zones, wall and hatch turrets,
+ * supply drones carrying pickups (Fan, Hornet, Rail) and frogmen in the water.
  *
  * Reach limits (slowest operator, Rurik): ~41 px jump height, ~57 px running jump distance.
  * Channel gaps are 48 px; pontoon gaps are 46 px. Every quay is climbable from the water:
@@ -47,13 +51,16 @@ const block = (x: number, to: number, y: number, bottom = GROUND_Y): PlatformDef
 
 /** Section D starts after the basin; everything there is laid out relative to it. */
 const D = 352;
+/** Section E: gangway channel, then the Lock Gate arena. */
+const E = 3900 + D; // 4252, where section D's ground ends
+const GATE_X = E + 688; // 4940
 
 export const GREYBOX_01: StageDef = {
   id: 'greybox-01',
   name: 'Harbour approach',
-  width: 3900 + D,
+  width: GATE_X + 140,
   height: WORLD_H,
-  parTimeMs: 180_000,
+  parTimeMs: 210_000,
   start: { x: 110, y: GROUND_Y },
   platforms: [
     // A — landing zone and first contact
@@ -87,11 +94,17 @@ export const GREYBOX_01: StageDef = {
     oneway(3000 + D, 3100 + D, 184),
     block(3250 + D, 3282 + D, 208),
     oneway(3360 + D, 3460 + D, 192),
+    // E — channel under the rigged gangway, then the Lock Gate arena
+    block(E, E + 168, 340, WORLD_H),
+    ground(E + 168, GATE_X + 140),
+    oneway(E + 300, E + 380, 192),
+    oneway(E + 470, E + 550, 176),
   ],
   water: [
     { x: 720, y: SURFACE_Y, w: 48, h: 340 - SURFACE_Y },
     { x: 1520, y: SURFACE_Y, w: 48, h: 340 - SURFACE_Y },
     { x: 2416, y: SURFACE_Y, w: 484, h: 352 - SURFACE_Y },
+    { x: E, y: SURFACE_Y, w: 168, h: 340 - SURFACE_Y },
   ],
   enemies: [
     { type: 'rifleman', x: 430, y: GROUND_Y },
@@ -121,6 +134,7 @@ export const GREYBOX_01: StageDef = {
     { x: 2360, y: GROUND_Y },
     { x: 2940, y: GROUND_Y },
     { x: 3640 + D, y: GROUND_Y },
+    { x: E + 210, y: GROUND_Y },
   ],
   arenas: [
     {
@@ -135,7 +149,30 @@ export const GREYBOX_01: StageDef = {
       ],
     },
   ],
-  goal: { x: 3820 + D, y: GROUND_Y },
+  goal: { x: GATE_X + 96, y: GROUND_Y },
+  runners: [
+    { fromX: 250, toX: 700, everyMs: 2600, max: 2, sides: 'ahead' },
+    { fromX: 1600, toX: 2350, everyMs: 2300, max: 3, sides: 'both' },
+    { fromX: 2950, toX: 3220 + D, everyMs: 2000, max: 3, sides: 'both' },
+    { fromX: 3700 + D, toX: E - 20, everyMs: 2400, max: 2, sides: 'ahead' },
+  ],
+  turrets: [
+    { x: 640, y: GROUND_Y, mount: 'hatch' },
+    { x: 876, y: 222, mount: 'wall' },
+    { x: 1796, y: 222, mount: 'wall' },
+    { x: 2990, y: GROUND_Y, mount: 'hatch' },
+    { x: 3246 + D, y: 222, mount: 'wall' },
+    { x: 3760 + D, y: GROUND_Y, mount: 'hatch' },
+  ],
+  drones: [
+    { triggerX: 520, y: 150, pickup: 'fan' },
+    { triggerX: 1700, y: 120, pickup: 'hornet' },
+    { triggerX: 3050, y: 130, pickup: 'rail' },
+    { triggerX: E - 80, y: 140, pickup: 'fan' },
+  ],
+  bridges: [{ x: E, to: E + 168, y: GROUND_Y }],
+  frogmen: [{ x: 2480 }, { x: E + 90 }],
+  gate: { x: GATE_X, triggerX: E + 250, arenaLeft: E + 180 },
   insertion: {
     landX: 110,
     approachFrom: 'left',

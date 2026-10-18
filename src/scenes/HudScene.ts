@@ -36,6 +36,7 @@ export class HudScene extends Phaser.Scene {
   private cards: Card[] = [];
   private swapText!: Phaser.GameObjects.Text;
   private timer!: Phaser.GameObjects.Text;
+  private bossName!: Phaser.GameObjects.Text;
   private fpsText!: Phaser.GameObjects.Text;
   private callout!: Phaser.GameObjects.Text;
   private notice!: Phaser.GameObjects.Text;
@@ -83,6 +84,10 @@ export class HudScene extends Phaser.Scene {
       '',
       txt('hud', 20, CSSC.bone, { letterSpacing: 2 }),
     );
+    this.bossName = this.add
+      .text(CANVAS_W / 2, 96, '', txt('hud', 20, CSSC.bone, { letterSpacing: 4 }))
+      .setOrigin(0.5)
+      .setVisible(false);
     this.timer = this.add
       .text(
         CANVAS_W - PAD - 20,
@@ -244,6 +249,7 @@ export class HudScene extends Phaser.Scene {
     this.drawSwap(g);
     this.drawWeapon(g);
     this.drawAir(g);
+    this.drawBoss(g);
 
     this.timer
       .setText(formatTime(hud.timeMs))
@@ -343,6 +349,20 @@ export class HudScene extends Phaser.Scene {
         .setColor(CSSC.bone)
         .setPosition(PAD + 4, y);
     }
+  }
+
+  /** Boss health bar, top centre: grey while the core is shielded, ember once exposed. */
+  private drawBoss(g: Phaser.GameObjects.Graphics): void {
+    const b = hud.boss;
+    this.bossName.setVisible(!!b);
+    if (!b) return;
+    const w = 300;
+    const x = CANVAS_W / 2 - w / 2;
+    const y = 110;
+    this.bossName.setText(b.shielded ? `${b.name}  ·  SHIELDED` : b.name);
+    plate(g, x - 10, y - 6, w + 20, 20, { skew: 8, fill: PALETTE.ink, fillAlpha: 0.8 });
+    g.fillStyle(PALETTE.steel, 1).fillRect(x, y, w, 8);
+    g.fillStyle(b.shielded ? PALETTE.steelHi : PALETTE.ember, 1).fillRect(x, y, w * b.frac, 8);
   }
 
   private drawWeapon(g: Phaser.GameObjects.Graphics): void {
